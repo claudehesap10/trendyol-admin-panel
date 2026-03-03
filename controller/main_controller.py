@@ -123,7 +123,7 @@ class MainController:
             # Her ürün için satıcıları çek
             products_with_sellers = []
             for product in products:
-                sellers = self.scraper.fetch_sellers_for_product(product['id'])
+                sellers = self.scraper.fetch_sellers_for_product(product['url'], product['name'])
                 product['sellers'] = sellers
                 products_with_sellers.append(product)
                 logger.info(f"  ✓ {product['name']}: {len(sellers)} satıcı")
