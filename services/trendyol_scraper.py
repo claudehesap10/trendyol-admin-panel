@@ -56,13 +56,13 @@ class TrendyolScraper:
                 })
                 
                 # Sayfayı yükle
-                page.goto(self.store_url, wait_until='networkidle', timeout=30000)
+                page.goto(self.store_url, wait_until='domcontentloaded', timeout=60000)
                 
                 # JavaScript'in çalışması için bekle
                 time.sleep(3)
                 
-                # Ürün linklerini bul
-                product_elements = page.query_selector_all('a[href*="/p-"]')
+                # Ürün linklerini bul - Trendyol ürünleri /lavazza/, /penti- vb. şeklinde
+                product_elements = page.query_selector_all('a[href*="?boutiqueId="]')
                 
                 logger.info(f"📦 {len(product_elements)} ürün linki bulundu")
                 
@@ -82,11 +82,15 @@ class TrendyolScraper:
                             href = 'https://www.trendyol.com' + href
                         
                         # Ürün ID'sini çıkar
-                        if '/p-' in href:
-                            product_id = href.split('/p-')[-1].split('?')[0].split('/')[0]
+                        if '?boutiqueId=' in href or 'merchantId=' in href:
+                            # URL'den ürün ID'sini çıkar
+                            product_id = href.split('/')[-1].split('?')[0] if '/' in href else href.split('?')[0]
                             
                             if product_id and product_id not in seen_ids:
                                 product_name = text.strip()
+                                
+                                # Ürün adını temizle - "Hızlı Bakış" vb. metinleri kaldır
+                                product_name = product_name.replace('Hızlı Bakış', '').replace('Yetkili Satıcı', '').replace('Başarılı Satıcı', '').strip()
                                 
                                 if product_name and len(product_name) > 3:
                                     products.append({
@@ -125,13 +129,13 @@ class TrendyolScraper:
                 })
                 
                 # Sayfayı yükle
-                page.goto(product_url, wait_until='networkidle', timeout=30000)
+                page.goto(product_url, wait_until='domcontentloaded', timeout=60000)
                 
                 # JavaScript'in çalışması için bekle
                 time.sleep(3)
                 
                 # Sayfadaki tüm metni al
-                page_text = page.text_content()
+                page_text = page.evaluate('() => document.body.innerText')
                 page_source = page.content()
                 
                 sellers = []
@@ -192,13 +196,18 @@ class TrendyolScraper:
         
         try:
             # Satıcı adı + fiyat + rating kombinasyonlarını ara
-            # Örnek: "Esvento 1.680 TL 9.6"
+            # Trendyol'da satıcılar şu şekilde görünüyor:
+            # "Satıcı Adı
+            #  Fiyat TL
+            #  Rating (örn: 9.6)"
             
             lines = page_text.split('\n')
             
             for i, line in enumerate(lines):
+                line_clean = line.strip()
+                
                 # Fiyat ve TL içeren satırları ara
-                if 'TL' in line and re.search(r'\d{1,5}[.,]\d{3}', line):
+                if 'TL' in line_clean and re.search(r'\d{1,5}[.,]\d{3}', line_clean):
                     try:
                         # Satıcı adını bul (genelde bir satır üstünde)
                         seller_name = None
@@ -206,23 +215,27 @@ class TrendyolScraper:
                         rating = None
                         
                         # Mevcut satırdan fiyatı çıkar
-                        price_match = re.search(r'(\d{1,5}[.,]\d{3})\s*TL', line)
+                        price_match = re.search(r'(\d{1,5}[.,]\d{3})\s*TL', line_clean)
                         if price_match:
                             price_str = price_match.group(1).replace('.', '').replace(',', '.')
                             price = float(price_str)
                         
-                        # Rating'i ara
-                        rating_match = re.search(r'(\d[.,]\d)', line)
-                        if rating_match:
-                            rating_str = rating_match.group(1).replace(',', '.')
-                            rating = float(rating_str)
+                        # Satıcı adını ara (bir satır üstünde)
+                        if i > 0:
+                            prev_line = lines[i-1].strip()
+                            # Satıcı adı genelde sadece metin içerir (sayı değil)
+                            if prev_line and not re.search(r'^\d', prev_line) and len(prev_line) > 2:
+                                seller_name = prev_line
                         
-                        # Satıcı adını ara (satırın başında veya önceki satırda)
-                        name_match = re.search(r'^([A-Za-zÇçĞğİıÖöŞşÜü\s]+?)\s+\d', line)
-                        if name_match:
-                            seller_name = name_match.group(1).strip()
+                        # Rating'i ara (bir satır altında)
+                        if i < len(lines) - 1:
+                            next_line = lines[i+1].strip()
+                            rating_match = re.search(r'^(\d[.,]\d)', next_line)
+                            if rating_match:
+                                rating_str = rating_match.group(1).replace(',', '.')
+                                rating = float(rating_str)
                         
-                        if seller_name and price:
+                        if seller_name and price and seller_name not in ['', 'Hızlı Bakış', 'Yetkili Satıcı', 'Başarılı Satıcı']:
                             seller = {
                                 'name': seller_name,
                                 'price': price,
@@ -235,7 +248,7 @@ class TrendyolScraper:
                             # Duplikat kontrol
                             if not any(s['name'] == seller['name'] for s in sellers):
                                 sellers.append(seller)
-                                logger.info(f"  ✓ {seller_name} - {price} TL")
+                                logger.info(f"  ✓ {seller_name} - {price} TL (Rating: {rating if rating else 'N/A'})")
                     except:
                         pass
             
