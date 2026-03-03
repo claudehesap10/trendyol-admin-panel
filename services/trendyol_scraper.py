@@ -1,11 +1,12 @@
 """
-Trendyol Scraper Servisi - Cloudscraper ile Cloudflare Bypass
+Trendyol Scraper Servisi - Playwright ile JavaScript Desteği
 """
 import logging
 import re
 import json
 from typing import List, Dict, Optional
 import time
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -16,29 +17,24 @@ class TrendyolScraper:
         self.store_url = store_url
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        self.scraper = None
+        self.browser = None
     
     def initialize(self) -> bool:
         """Scraper'ı başlat"""
         try:
-            import cloudscraper
-            
-            self.scraper = cloudscraper.create_scraper()
-            logger.info("✅ Cloudscraper başlatıldı (Cloudflare bypass)")
-            return True
-        except ImportError:
-            logger.warning("⚠️ Cloudscraper yüklü değil, yüklüyorum...")
+            # Playwright'ı yükle
             try:
+                from playwright.sync_api import sync_playwright
+                logger.info("✅ Playwright bulundu")
+            except ImportError:
+                logger.warning("⚠️ Playwright yüklü değil, yüklüyorum...")
                 import subprocess
-                subprocess.check_call(['pip', 'install', 'cloudscraper'])
-                
-                import cloudscraper
-                self.scraper = cloudscraper.create_scraper()
-                logger.info("✅ Cloudscraper yüklendi ve başlatıldı")
-                return True
-            except Exception as e:
-                logger.error(f"❌ Cloudscraper kurulumu başarısız: {e}")
-                return False
+                subprocess.check_call(['pip', 'install', 'playwright'])
+                subprocess.check_call(['playwright', 'install', 'chromium'])
+                from playwright.sync_api import sync_playwright
+                logger.info("✅ Playwright yüklendi")
+            
+            return True
         except Exception as e:
             logger.error(f"❌ Scraper başlatma hatası: {e}")
             return False
@@ -48,56 +44,66 @@ class TrendyolScraper:
         try:
             logger.info(f"🔍 Ürünler çekiliyor: {self.store_url}")
             
-            if not self.scraper:
-                logger.error("❌ Scraper başlatılmamış")
-                return []
+            from playwright.sync_api import sync_playwright
             
-            # Sayfayı indir
-            response = self.scraper.get(self.store_url, timeout=15)
-            response.raise_for_status()
-            
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            products = []
-            seen_ids = set()
-            
-            # Ürün linklerini bul
-            product_links = soup.select('a[href*="/p-"]')
-            
-            logger.info(f"📦 {len(product_links)} ürün linki bulundu")
-            
-            for link in product_links[:10]:  # İlk 10 ürün
-                try:
-                    href = link.get('href', '')
-                    if not href:
-                        continue
-                    
-                    # Tam URL'ye dönüştür
-                    if href.startswith('/'):
-                        href = 'https://www.trendyol.com' + href
-                    
-                    # Ürün ID'sini çıkar
-                    if '/p-' in href:
-                        product_id = href.split('/p-')[-1].split('?')[0].split('/')[0]
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                
+                # User-Agent ayarla
+                page.set_extra_http_headers({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                
+                # Sayfayı yükle
+                page.goto(self.store_url, wait_until='networkidle', timeout=30000)
+                
+                # JavaScript'in çalışması için bekle
+                time.sleep(3)
+                
+                # Ürün linklerini bul
+                product_elements = page.query_selector_all('a[href*="/p-"]')
+                
+                logger.info(f"📦 {len(product_elements)} ürün linki bulundu")
+                
+                products = []
+                seen_ids = set()
+                
+                for elem in product_elements[:10]:  # İlk 10 ürün
+                    try:
+                        href = elem.get_attribute('href')
+                        text = elem.text_content()
                         
-                        if product_id and product_id not in seen_ids:
-                            product_name = link.get_text(strip=True)
+                        if not href or not text:
+                            continue
+                        
+                        # Tam URL'ye dönüştür
+                        if href.startswith('/'):
+                            href = 'https://www.trendyol.com' + href
+                        
+                        # Ürün ID'sini çıkar
+                        if '/p-' in href:
+                            product_id = href.split('/p-')[-1].split('?')[0].split('/')[0]
                             
-                            if product_name and len(product_name) > 3:
-                                products.append({
-                                    'id': product_id,
-                                    'name': product_name,
-                                    'url': href
-                                })
-                                seen_ids.add(product_id)
-                                logger.info(f"  ✓ {product_name}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Ürün çekme hatası: {e}")
-                    continue
-            
-            logger.info(f"✅ {len(products)} benzersiz ürün çekildi")
-            return products
+                            if product_id and product_id not in seen_ids:
+                                product_name = text.strip()
+                                
+                                if product_name and len(product_name) > 3:
+                                    products.append({
+                                        'id': product_id,
+                                        'name': product_name,
+                                        'url': href
+                                    })
+                                    seen_ids.add(product_id)
+                                    logger.info(f"  ✓ {product_name}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Ürün çekme hatası: {e}")
+                        continue
+                
+                browser.close()
+                
+                logger.info(f"✅ {len(products)} benzersiz ürün çekildi")
+                return products
         except Exception as e:
             logger.error(f"❌ Ürün çekme hatası: {e}")
             return []
@@ -107,31 +113,41 @@ class TrendyolScraper:
         try:
             logger.info(f"🔍 Satıcılar çekiliyor")
             
-            if not self.scraper:
-                logger.error("❌ Scraper başlatılmamış")
-                return []
+            from playwright.sync_api import sync_playwright
             
-            # Ürün sayfasını yükle
-            response = self.scraper.get(product_url, timeout=15)
-            response.raise_for_status()
-            
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.content, 'html.parser')
-            page_source = response.text
-            page_text = soup.get_text()
-            
-            sellers = []
-            
-            # JSON verilerini ara
-            seller_data_list = self._extract_sellers_from_page(page_source, page_text)
-            sellers.extend(seller_data_list)
-            
-            # Eğer JSON'dan bulunamazsa, DOM'dan çık
-            if not sellers:
-                sellers = self._extract_sellers_from_dom(soup)
-            
-            logger.info(f"✅ {len(sellers)} satıcı çekildi")
-            return sellers
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                
+                # User-Agent ayarla
+                page.set_extra_http_headers({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                
+                # Sayfayı yükle
+                page.goto(product_url, wait_until='networkidle', timeout=30000)
+                
+                # JavaScript'in çalışması için bekle
+                time.sleep(3)
+                
+                # Sayfadaki tüm metni al
+                page_text = page.text_content()
+                page_source = page.content()
+                
+                sellers = []
+                
+                # JSON verilerini ara
+                seller_data_list = self._extract_sellers_from_page(page_source, page_text)
+                sellers.extend(seller_data_list)
+                
+                # Eğer JSON'dan bulunamazsa, DOM'dan çık
+                if not sellers:
+                    sellers = self._extract_sellers_from_text(page_text)
+                
+                browser.close()
+                
+                logger.info(f"✅ {len(sellers)} satıcı çekildi")
+                return sellers
         except Exception as e:
             logger.error(f"❌ Satıcı çekme hatası: {e}")
             return []
@@ -168,6 +184,64 @@ class TrendyolScraper:
             return sellers
         except Exception as e:
             logger.warning(f"⚠️ JSON satıcı çıkarma hatası: {e}")
+            return []
+    
+    def _extract_sellers_from_text(self, page_text: str) -> List[Dict]:
+        """Sayfa metninden satıcıları çıkar"""
+        sellers = []
+        
+        try:
+            # Satıcı adı + fiyat + rating kombinasyonlarını ara
+            # Örnek: "Esvento 1.680 TL 9.6"
+            
+            lines = page_text.split('\n')
+            
+            for i, line in enumerate(lines):
+                # Fiyat ve TL içeren satırları ara
+                if 'TL' in line and re.search(r'\d{1,5}[.,]\d{3}', line):
+                    try:
+                        # Satıcı adını bul (genelde bir satır üstünde)
+                        seller_name = None
+                        price = None
+                        rating = None
+                        
+                        # Mevcut satırdan fiyatı çıkar
+                        price_match = re.search(r'(\d{1,5}[.,]\d{3})\s*TL', line)
+                        if price_match:
+                            price_str = price_match.group(1).replace('.', '').replace(',', '.')
+                            price = float(price_str)
+                        
+                        # Rating'i ara
+                        rating_match = re.search(r'(\d[.,]\d)', line)
+                        if rating_match:
+                            rating_str = rating_match.group(1).replace(',', '.')
+                            rating = float(rating_str)
+                        
+                        # Satıcı adını ara (satırın başında veya önceki satırda)
+                        name_match = re.search(r'^([A-Za-zÇçĞğİıÖöŞşÜü\s]+?)\s+\d', line)
+                        if name_match:
+                            seller_name = name_match.group(1).strip()
+                        
+                        if seller_name and price:
+                            seller = {
+                                'name': seller_name,
+                                'price': price,
+                                'rating': rating if rating else 0.0,
+                                'coupon': '',
+                                'basket_discount': '',
+                                'net_price': price
+                            }
+                            
+                            # Duplikat kontrol
+                            if not any(s['name'] == seller['name'] for s in sellers):
+                                sellers.append(seller)
+                                logger.info(f"  ✓ {seller_name} - {price} TL")
+                    except:
+                        pass
+            
+            return sellers
+        except Exception as e:
+            logger.warning(f"⚠️ Metin satıcı çıkarma hatası: {e}")
             return []
     
     def _extract_sellers_from_json(self, data: dict) -> List[Dict]:
@@ -212,50 +286,6 @@ class TrendyolScraper:
         
         find_sellers_recursive(data)
         return sellers
-    
-    def _extract_sellers_from_dom(self, soup) -> List[Dict]:
-        """BeautifulSoup DOM'dan satıcıları çıkar"""
-        sellers = []
-        
-        try:
-            seller_containers = soup.find_all('div', class_=re.compile(r'seller|merchant|vendor', re.I))
-            
-            for container in seller_containers:
-                try:
-                    name_elem = container.find(['h3', 'h4', 'span', 'p'], class_=re.compile(r'name|seller', re.I))
-                    seller_name = name_elem.get_text(strip=True) if name_elem else None
-                    
-                    price_elem = container.find(string=re.compile(r'\d+[.,]\d+\s*TL'))
-                    price_text = price_elem if price_elem else None
-                    
-                    rating_elem = container.find(string=re.compile(r'\d[.,]\d'))
-                    rating_text = rating_elem if rating_elem else None
-                    
-                    if seller_name and price_text:
-                        try:
-                            price = float(re.sub(r'[^\d.,]', '', str(price_text)).replace(',', '.'))
-                            rating = float(re.sub(r'[^\d.,]', '', str(rating_text)).replace(',', '.')) if rating_text else 0.0
-                            
-                            seller = {
-                                'name': seller_name,
-                                'price': price,
-                                'rating': rating,
-                                'coupon': '',
-                                'basket_discount': '',
-                                'net_price': price
-                            }
-                            
-                            if not any(s['name'] == seller['name'] for s in sellers):
-                                sellers.append(seller)
-                        except:
-                            pass
-                except:
-                    pass
-            
-            return sellers
-        except Exception as e:
-            logger.warning(f"⚠️ DOM satıcı çıkarma hatası: {e}")
-            return []
     
     def close(self) -> None:
         """Scraper'ı kapat"""
