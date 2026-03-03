@@ -183,7 +183,8 @@ class TrendyolScraper:
                             seller_page.set_extra_http_headers({
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                             })
-                            seller_page.goto(seller_url, wait_until='domcontentloaded', timeout=60000)\n                            time.sleep(2)
+                            seller_page.goto(seller_url, wait_until='domcontentloaded', timeout=60000)
+                            time.sleep(2)
                             
                             # Satıcı bilgisini çek
                             seller = self._extract_seller_from_page(seller_page)
