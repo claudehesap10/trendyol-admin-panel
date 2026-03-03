@@ -109,7 +109,8 @@ class MainController:
             
             # Başlangıç bildirimi gönder
             if self.telegram:
-                self.telegram.send_start_notification()
+                if not self.telegram.send_start_notification():
+                    logger.warning("⚠️ Başlangıç bildirimi gönderilemedi")
             
             # Ürünleri çek
             products = self.scraper.fetch_products()
@@ -130,11 +131,14 @@ class MainController:
             # Excel raporu oluştur
             report_path = self.excel_gen.generate_report(products_with_sellers)
             
-            # Raporu Telegram'a gönder
+            # Raporu Telegram'a gönder (ZORUNLU)
             if self.telegram:
                 scan_time = self._get_elapsed_time()
                 total_sellers = sum(len(p.get('sellers', [])) for p in products_with_sellers)
-                self.telegram.send_scan_report(report_path, total_sellers, scan_time)
+                
+                if not self.telegram.send_scan_report(report_path, total_sellers, scan_time):
+                    logger.error("❌ Telegram'a rapor gönderilemedi!")
+                    return False
             
             logger.info("✅ Tarama tamamlandı")
             return True
@@ -148,10 +152,11 @@ class MainController:
         try:
             if self.telegram:
                 elapsed_time = self._get_elapsed_time()
-                self.telegram.send_message(
+                if not self.telegram.send_message(
                     f"✅ <b>Tarama Başarıyla Tamamlandı</b>\n\n"
                     f"⏱️ Toplam Süre: {elapsed_time}"
-                )
+                ):
+                    logger.warning("⚠️ Başarı bildirimi gönderilemedi")
         except Exception as e:
             logger.error(f"❌ Başarı bildirimi gönderim hatası: {e}")
     
@@ -159,7 +164,8 @@ class MainController:
         """Hata bildirimi gönder"""
         try:
             if self.telegram:
-                self.telegram.send_error_notification(error)
+                if not self.telegram.send_error_notification(error):
+                    logger.warning("⚠️ Hata bildirimi gönderilemedi")
         except Exception as e:
             logger.error(f"❌ Hata bildirimi gönderim hatası: {e}")
     
