@@ -62,40 +62,68 @@ class ExcelGenerator:
         headers = [
             "Ürün Adı",
             "Satıcı",
-            "Etiket Fiyatı",
-            "İndirim",
-            "Net Fiyat",
-            "Kupon",
-            "Sepette İndirim",
-            "Rating"
+            "Orijinal Fiyat (TL)",
+            "Kupon İndirimi",
+            "Sepette İndirimi",
+            "Son Fiyat (TL)",
+            "Rating",
+            "Notlar"
         ]
         
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=4, column=col)
             cell.value = header
-            cell.font = Font(bold=True, color="FFFFFF")
+            cell.font = Font(bold=True, color="FFFFFF", size=11)
             cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     
     def _add_data(self, ws, products_data: List[Dict]) -> None:
         """Veri ekle"""
         row = 5
         
         for product in products_data:
-            for seller in product.get('sellers', []):
-                ws.cell(row=row, column=1).value = product.get('name', '')
+            product_name = product.get('name', '')
+            sellers = product.get('sellers', [])
+            
+            if not sellers:
+                continue
+            
+            # Her satıcı için bir satır
+            for idx, seller in enumerate(sellers):
+                # Ürün adı (sadece ilk satıcı satırında)
+                if idx == 0:
+                    ws.cell(row=row, column=1).value = product_name
+                
+                # Satıcı adı
                 ws.cell(row=row, column=2).value = seller.get('name', '')
+                
+                # Orijinal fiyat
                 ws.cell(row=row, column=3).value = seller.get('price', 0)
-                ws.cell(row=row, column=4).value = seller.get('discount_percent', 0)
-                ws.cell(row=row, column=5).value = seller.get('net_price', 0)
-                ws.cell(row=row, column=6).value = seller.get('coupon', '')
-                ws.cell(row=row, column=7).value = seller.get('basket_discount', '')
-                ws.cell(row=row, column=8).value = seller.get('rating', 0)
+                
+                # Kupon İndirimi
+                ws.cell(row=row, column=4).value = seller.get('coupon', '')
+                
+                # Sepette İndirimi
+                ws.cell(row=row, column=5).value = seller.get('basket_discount', '')
+                
+                # Son Fiyat (Net Fiyat)
+                ws.cell(row=row, column=6).value = seller.get('net_price', 0)
+                
+                # Rating
+                ws.cell(row=row, column=7).value = seller.get('rating', 0)
+                
+                # Notlar
+                notes = []
+                if seller.get('coupon'):
+                    notes.append(f"Kupon: {seller.get('coupon')}")
+                if seller.get('basket_discount'):
+                    notes.append(f"Sepette: {seller.get('basket_discount')}")
+                ws.cell(row=row, column=8).value = ' | '.join(notes)
                 
                 # Hücre formatı
                 for col in range(1, 9):
                     cell = ws.cell(row=row, column=col)
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                     cell.border = Border(
                         left=Side(style='thin'),
                         right=Side(style='thin'),
@@ -104,7 +132,7 @@ class ExcelGenerator:
                     )
                     
                     # Sayı formatı
-                    if col in [3, 4, 5, 8]:
+                    if col in [3, 6, 7]:
                         cell.number_format = '0.00'
                 
                 row += 1
@@ -112,9 +140,9 @@ class ExcelGenerator:
         # Sütun genişliği ayarla
         ws.column_dimensions['A'].width = 35
         ws.column_dimensions['B'].width = 20
-        ws.column_dimensions['C'].width = 15
-        ws.column_dimensions['D'].width = 12
-        ws.column_dimensions['E'].width = 15
-        ws.column_dimensions['F'].width = 15
-        ws.column_dimensions['G'].width = 15
-        ws.column_dimensions['H'].width = 12
+        ws.column_dimensions['C'].width = 18
+        ws.column_dimensions['D'].width = 18
+        ws.column_dimensions['E'].width = 18
+        ws.column_dimensions['F'].width = 18
+        ws.column_dimensions['G'].width = 12
+        ws.column_dimensions['H'].width = 30

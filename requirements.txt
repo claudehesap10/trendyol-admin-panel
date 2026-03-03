@@ -2,3 +2,5 @@ requests
 openpyxl
 python-dotenv
 beautifulsoup4
+selenium
+webdriver-manager
