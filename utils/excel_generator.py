@@ -121,9 +121,8 @@ class ExcelGenerator:
             
             # Her satıcı için bir satır
             for idx, seller in enumerate(sellers):
-                # Ürün adı (sadece ilk satıcı satırında)
-                if idx == 0:
-                    ws.cell(row=row, column=1).value = product_name
+                # Ürün adı (HER satıcı satırında)
+                ws.cell(row=row, column=1).value = product_name
                 
                 # Satıcı adı
                 ws.cell(row=row, column=2).value = seller.get('name', '')
