@@ -1,6 +1,6 @@
 """
 Trendyol Scraper Servisi - Playwright ile JavaScript Desteği
-Ürün sayfasındaki satıcı bilgilerini çeker (fiyat, kupon, indirim, rating)
+Ürün sayfasındaki tüm satıcıları çeker (fiyat, kupon, indirim, rating)
 """
 import logging
 import re
@@ -75,7 +75,6 @@ class TrendyolScraper:
                         if href.startswith('/'):
                             href = 'https://www.trendyol.com' + href
                         elif not href.startswith('http'):
-                            # Eğer sadece slug ise, tam URL'ye dönüştür
                             href = 'https://www.trendyol.com/' + href
                         
                         if '?boutiqueId=' in href or 'merchantId=' in href or 'p-' in href:
@@ -106,9 +105,9 @@ class TrendyolScraper:
             return []
     
     def fetch_sellers_for_product(self, product_url: str, product_name: str = "") -> List[Dict]:
-        """Bir ürün için satıcıları çek"""
+        """Bir ürün için TÜM satıcıları çek"""
         try:
-            logger.info(f"🔍 Satıcılar çekiliyor")
+            logger.info(f"🔍 Satıcılar çekiliyor: {product_name}")
             
             from playwright.sync_api import sync_playwright
             
@@ -123,120 +122,183 @@ class TrendyolScraper:
                 page.goto(product_url, wait_until='domcontentloaded', timeout=60000)
                 time.sleep(3)
                 
-                # Sayfadaki metni al
-                page_text = page.evaluate('() => document.body.innerText')
-                page_source = page.content()
-                
                 sellers = []
                 
-                # Sayfadaki satıcı bilgilerini parse et
-                sellers = self._extract_sellers_from_page(page_text, page_source, product_name)
+                # Ürün adını çek - class="product-title variant-pdp"
+                product_title_elem = page.query_selector('.product-title.variant-pdp')
+                if product_title_elem:
+                    actual_product_name = product_title_elem.text_content().strip()
+                    logger.info(f"   📦 Ürün: {actual_product_name}")
+                
+                # Ana satıcıyı çek (sayfanın sağ tarafında)
+                main_seller = self._extract_main_seller(page)
+                if main_seller:
+                    sellers.append(main_seller)
+                    logger.info(f"   ✓ Ana Satıcı: {main_seller['name']} - {main_seller['price']} TL")
+                
+                # Diğer satıcıları çek - "Diğer Satıcılar" bölümünden
+                other_sellers = self._extract_other_sellers(page)
+                sellers.extend(other_sellers)
+                for seller in other_sellers:
+                    logger.info(f"   ✓ {seller['name']} - {seller['price']} TL")
                 
                 browser.close()
                 
-                logger.info(f"✅ {len(sellers)} satıcı çekildi")
+                logger.info(f"✅ Toplam {len(sellers)} satıcı çekildi")
                 return sellers
         except Exception as e:
             logger.error(f"❌ Satıcı çekme hatası: {e}")
             return []
     
-    def _extract_sellers_from_page(self, page_text: str, page_source: str, product_name: str) -> List[Dict]:
-        """Sayfadan satıcıları çıkar"""
-        sellers = []
-        
+    def _extract_main_seller(self, page) -> Optional[Dict]:
+        """Ana satıcıyı çek (sayfanın sağ tarafında)"""
         try:
-            # Sayfadaki fiyat bilgilerini ara
-            # Format: "1.525 TL" veya "Sepette 1.512 TL"
+            seller = {
+                'name': '',
+                'price': 0.0,
+                'old_price': 0.0,
+                'coupon': '',
+                'basket_discount': '',
+                'net_price': 0.0,
+                'rating': 0.0
+            }
             
-            lines = page_text.split('\n')
+            # Satıcı adı - class="merchant-name"
+            merchant_elem = page.query_selector('.merchant-name')
+            if merchant_elem:
+                seller['name'] = merchant_elem.text_content().strip()
             
-            # Satıcı adını ara - genelde "Esvento" gibi bir isim
-            seller_name = ""
-            price = 0.0
-            old_price = 0.0
-            coupon = ""
-            basket_discount = ""
-            rating = 0.0
+            # Rating - class="score-badge"
+            rating_elem = page.query_selector('.score-badge')
+            if rating_elem:
+                rating_text = rating_elem.text_content().strip()
+                try:
+                    seller['rating'] = float(rating_text.replace(',', '.'))
+                except:
+                    pass
             
-            for i, line in enumerate(lines):
-                line_clean = line.strip()
+            # Fiyat - class="discounted" veya class="new-price"
+            price_elem = page.query_selector('.discounted')
+            if not price_elem:
+                price_elem = page.query_selector('.new-price')
+            
+            if price_elem:
+                price_text = price_elem.text_content().strip()
+                price_match = re.search(r'(\d+[.,]\d+)', price_text)
+                if price_match:
+                    price_str = price_match.group(1).replace('.', '').replace(',', '.')
+                    seller['price'] = float(price_str)
+                    seller['net_price'] = seller['price']
+            
+            # Eski fiyat - class="old-price"
+            old_price_elem = page.query_selector('.old-price')
+            if old_price_elem:
+                old_price_text = old_price_elem.text_content().strip()
+                price_match = re.search(r'(\d+[.,]\d+)', old_price_text)
+                if price_match:
+                    price_str = price_match.group(1).replace('.', '').replace(',', '.')
+                    seller['old_price'] = float(price_str)
+            
+            # Kupon - data-testid="coupon-text"
+            coupon_elem = page.query_selector('[data-testid="coupon-text"]')
+            if coupon_elem:
+                coupon_text = coupon_elem.text_content().strip()
+                seller['coupon'] = coupon_text
                 
-                # Rating'i ara - "9.6" gibi
-                if re.match(r'^\d[.,]\d$', line_clean):
-                    try:
-                        rating = float(line_clean.replace(',', '.'))
-                    except:
-                        pass
-                
-                # Kupon bilgisini ara - "%5 İndirimli Kupon!"
-                if 'İndirimli Kupon' in line_clean or 'Kupon' in line_clean:
-                    coupon_match = re.search(r'%(\d+)', line_clean)
-                    if coupon_match:
-                        coupon = f"%{coupon_match.group(1)} Kupon"
-                
-                # Sepette indirim - "Sepette %10 İndirim"
-                if 'Sepette' in line_clean and '%' in line_clean:
-                    basket_discount = line_clean
-                
-                # Fiyat bilgisini ara - "1.525 TL" veya "Sepette 1.512 TL"
-                if 'TL' in line_clean and re.search(r'\d{1,5}[.,]\d{3}', line_clean):
-                    price_match = re.search(r'(\d{1,5}[.,]\d{3})\s*TL', line_clean)
-                    if price_match:
-                        price_str = price_match.group(1).replace('.', '').replace(',', '.')
-                        price = float(price_str)
-                        
-                        # Eski fiyat varsa bir satır üstünde
-                        if i > 0:
-                            prev_line = lines[i-1].strip()
-                            if 'TL' in prev_line:
-                                old_price_match = re.search(r'(\d{1,5}[.,]\d{3})\s*TL', prev_line)
-                                if old_price_match:
-                                    old_price_str = old_price_match.group(1).replace('.', '').replace(',', '.')
-                                    old_price = float(old_price_str)
-                
-                # Satıcı adını ara - genelde bir satır fiyatın üstünde
-                if price > 0 and not seller_name:
-                    # Fiyat bulunduktan sonra satıcı adını ara
-                    for j in range(max(0, i-5), i):
-                        prev = lines[j].strip()
-                        # Satıcı adı genelde sadece metin içerir, sayı değil
-                        if prev and not re.search(r'^\d', prev) and len(prev) > 2 and len(prev) < 50:
-                            if not any(x in prev for x in ['TL', '%', 'İndirim', 'Kupon', 'Sepette', 'Rating', 'Fiyat']):
-                                seller_name = prev
-                                break
+                # Net fiyatı hesapla
+                coupon_match = re.search(r'%(\d+)', coupon_text)
+                if coupon_match:
+                    coupon_percent = int(coupon_match.group(1))
+                    if seller['price'] > 0:
+                        seller['net_price'] = seller['price'] * (1 - coupon_percent / 100)
             
-            # Eğer satıcı adı bulunamadıysa, sayfadaki ilk satıcı adını ara
-            if not seller_name:
-                # "Esvento", "KAHVEDEBİZ" vb. satıcı adlarını ara
-                seller_match = re.search(r'(Esvento|KAHVEDEBİZ|Mass Coffee|Lavazza|[A-Z][a-zÇçĞğİıÖöŞşÜü]+)', page_text)
-                if seller_match:
-                    seller_name = seller_match.group(1)
+            # Sepette indirim
+            basket_elem = page.query_selector('[class*="basket"]')
+            if basket_elem:
+                basket_text = basket_elem.text_content().strip()
+                if basket_text:
+                    seller['basket_discount'] = basket_text
             
-            # Net fiyatı hesapla (kupon ve sepette indirim uygulanmış)
-            net_price = price
-            if coupon and '%' in coupon:
-                coupon_percent_match = re.search(r'%(\d+)', coupon)
-                if coupon_percent_match:
-                    coupon_percent = int(coupon_percent_match.group(1))
-                    net_price = price * (1 - coupon_percent / 100)
+            if seller['name'] and seller['price'] > 0:
+                return seller
             
-            if seller_name and price > 0:
-                seller = {
-                    'product_name': product_name,
-                    'name': seller_name,
-                    'price': price,
-                    'old_price': old_price,
-                    'coupon': coupon,
-                    'basket_discount': basket_discount,
-                    'net_price': net_price,
-                    'rating': rating
-                }
-                sellers.append(seller)
-                logger.info(f"  ✓ {seller_name} - {price} TL")
+            return None
+        except Exception as e:
+            logger.warning(f"⚠️ Ana satıcı çıkarma hatası: {e}")
+            return None
+    
+    def _extract_other_sellers(self, page) -> List[Dict]:
+        """Diğer satıcıları çek"""
+        sellers = []
+        try:
+            # "Diğer Satıcılar" bölümünü bul
+            # Her satıcı bir div içinde, class="merchant-item" veya benzer
+            
+            # Satıcı kartlarını bul
+            seller_items = page.query_selector_all('[data-testid="seller-card"]')
+            
+            if not seller_items:
+                # Alternatif selector
+                seller_items = page.query_selector_all('.merchant-item')
+            
+            if not seller_items:
+                # Başka bir alternatif - div[class*="merchant"]
+                seller_items = page.query_selector_all('div[class*="merchant"]')
+            
+            logger.info(f"   📊 {len(seller_items)} satıcı kartı bulundu")
+            
+            for item in seller_items:
+                try:
+                    seller = {}
+                    
+                    # Satıcı adı
+                    name_elem = item.query_selector('.merchant-name')
+                    if name_elem:
+                        seller['name'] = name_elem.text_content().strip()
+                    
+                    # Fiyat
+                    price_elem = item.query_selector('.discounted')
+                    if not price_elem:
+                        price_elem = item.query_selector('.new-price')
+                    
+                    if price_elem:
+                        price_text = price_elem.text_content().strip()
+                        price_match = re.search(r'(\d+[.,]\d+)', price_text)
+                        if price_match:
+                            price_str = price_match.group(1).replace('.', '').replace(',', '.')
+                            seller['price'] = float(price_str)
+                    
+                    # Rating
+                    rating_elem = item.query_selector('.score-badge')
+                    if rating_elem:
+                        rating_text = rating_elem.text_content().strip()
+                        try:
+                            seller['rating'] = float(rating_text.replace(',', '.'))
+                        except:
+                            pass
+                    
+                    # Kupon
+                    coupon_elem = item.query_selector('[data-testid="coupon-text"]')
+                    if coupon_elem:
+                        seller['coupon'] = coupon_elem.text_content().strip()
+                    
+                    # Net fiyat
+                    seller['net_price'] = seller.get('price', 0.0)
+                    if 'coupon' in seller and '%' in seller['coupon']:
+                        coupon_match = re.search(r'%(\d+)', seller['coupon'])
+                        if coupon_match:
+                            coupon_percent = int(coupon_match.group(1))
+                            seller['net_price'] = seller['price'] * (1 - coupon_percent / 100)
+                    
+                    if seller.get('name') and seller.get('price', 0) > 0:
+                        sellers.append(seller)
+                except Exception as e:
+                    logger.warning(f"⚠️ Satıcı kartı çıkarma hatası: {e}")
+                    continue
             
             return sellers
         except Exception as e:
-            logger.warning(f"⚠️ Satıcı çıkarma hatası: {e}")
+            logger.warning(f"⚠️ Diğer satıcılar çıkarma hatası: {e}")
             return []
     
     def close(self) -> None:
