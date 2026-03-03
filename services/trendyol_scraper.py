@@ -71,10 +71,14 @@ class TrendyolScraper:
                         if not href or not text:
                             continue
                         
+                        # URL'yi tam hale getir
                         if href.startswith('/'):
                             href = 'https://www.trendyol.com' + href
+                        elif not href.startswith('http'):
+                            # Eğer sadece slug ise, tam URL'ye dönüştür
+                            href = 'https://www.trendyol.com/' + href
                         
-                        if '?boutiqueId=' in href or 'merchantId=' in href:
+                        if '?boutiqueId=' in href or 'merchantId=' in href or 'p-' in href:
                             product_id = href.split('/')[-1].split('?')[0] if '/' in href else href.split('?')[0]
                             
                             if product_id and product_id not in seen_ids:
