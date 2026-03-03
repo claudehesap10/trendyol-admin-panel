@@ -1,6 +1,6 @@
 """
 Trendyol Scraper Servisi - Playwright ile JavaScript Desteği
-Ürün sayfasındaki tüm satıcıları çeker (fiyat, kupon, indirim, rating)
+"Ürünün Diğer Satıcıları" bölümünden tüm satıcıları çeker
 """
 import logging
 import re
@@ -105,7 +105,7 @@ class TrendyolScraper:
             return []
     
     def fetch_sellers_for_product(self, product_url: str, product_name: str = "") -> List[Dict]:
-        """Bir ürün için TÜM satıcıları çek"""
+        """Bir ürün için "Ürünün Diğer Satıcıları" bölümünden TÜM satıcıları çek"""
         try:
             logger.info(f"🔍 Satıcılar çekiliyor: {product_name}")
             
@@ -129,18 +129,43 @@ class TrendyolScraper:
                 if product_title_elem:
                     actual_product_name = product_title_elem.text_content().strip()
                     logger.info(f"   📦 Ürün: {actual_product_name}")
+                    product_name = actual_product_name
                 
-                # Ana satıcıyı çek (sayfanın sağ tarafında)
-                main_seller = self._extract_main_seller(page)
-                if main_seller:
-                    sellers.append(main_seller)
-                    logger.info(f"   ✓ Ana Satıcı: {main_seller['name']} - {main_seller['price']} TL")
+                # "Ürünün Diğer Satıcıları" bölümünü bul
+                # Sayfayı scroll et
+                page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                time.sleep(2)
                 
-                # Diğer satıcıları çek - "Diğer Satıcılar" bölümünden
-                other_sellers = self._extract_other_sellers(page)
-                sellers.extend(other_sellers)
-                for seller in other_sellers:
-                    logger.info(f"   ✓ {seller['name']} - {seller['price']} TL")
+                # Satıcı kartlarını bul - "Ürünün Diğer Satıcıları" başlığından sonra
+                # Her satıcı bir div içinde, satıcı adı bir link içinde
+                
+                # Sayfadaki metni al
+                page_text = page.evaluate('() => document.body.innerText')
+                
+                # "Ürünün Diğer Satıcıları" bölümünü ara
+                if "Ürünün Diğer Satıcıları" in page_text:
+                    logger.info("   ✓ 'Ürünün Diğer Satıcıları' bölümü bulundu")
+                    
+                    # Satıcı kartlarını bul
+                    # Her satıcı bir div içinde, satıcı adı bir link veya span içinde
+                    seller_cards = page.query_selector_all('div[class*="seller-card"], div[class*="merchant-card"], div[class*="product-seller"]')
+                    
+                    logger.info(f"   📊 {len(seller_cards)} satıcı kartı bulundu")
+                    
+                    for card in seller_cards:
+                        try:
+                            seller = self._extract_seller_from_card(card, page)
+                            if seller and seller.get('name') and seller.get('price', 0) > 0:
+                                sellers.append(seller)
+                                logger.info(f"   ✓ {seller['name']} - {seller['price']} TL")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Satıcı kartı çıkarma hatası: {e}")
+                            continue
+                
+                # Eğer satıcı bulunamadıysa, sayfadaki tüm fiyatları ve satıcı adlarını çıkar
+                if not sellers:
+                    logger.info("   ℹ️ Satıcı kartları bulunamadı, alternatif yöntem kullanılıyor...")
+                    sellers = self._extract_sellers_from_text(page_text, product_name)
                 
                 browser.close()
                 
@@ -150,8 +175,8 @@ class TrendyolScraper:
             logger.error(f"❌ Satıcı çekme hatası: {e}")
             return []
     
-    def _extract_main_seller(self, page) -> Optional[Dict]:
-        """Ana satıcıyı çek (sayfanın sağ tarafında)"""
+    def _extract_seller_from_card(self, card, page) -> Optional[Dict]:
+        """Satıcı kartından bilgi çıkar"""
         try:
             seller = {
                 'name': '',
@@ -163,13 +188,13 @@ class TrendyolScraper:
                 'rating': 0.0
             }
             
-            # Satıcı adı - class="merchant-name"
-            merchant_elem = page.query_selector('.merchant-name')
-            if merchant_elem:
-                seller['name'] = merchant_elem.text_content().strip()
+            # Satıcı adı - link veya span içinde
+            name_elem = card.query_selector('a, span[class*="merchant"], span[class*="seller"]')
+            if name_elem:
+                seller['name'] = name_elem.text_content().strip()
             
-            # Rating - class="score-badge"
-            rating_elem = page.query_selector('.score-badge')
+            # Rating - yeşil badge içinde
+            rating_elem = card.query_selector('[class*="score"], [class*="rating"], span[class*="badge"]')
             if rating_elem:
                 rating_text = rating_elem.text_content().strip()
                 try:
@@ -177,128 +202,77 @@ class TrendyolScraper:
                 except:
                     pass
             
-            # Fiyat - class="discounted" veya class="new-price"
-            price_elem = page.query_selector('.discounted')
-            if not price_elem:
-                price_elem = page.query_selector('.new-price')
+            # Fiyat - TL içeren metin
+            card_text = card.text_content()
+            price_matches = re.findall(r'(\d{1,5}[.,]\d{3})\s*TL', card_text)
             
-            if price_elem:
-                price_text = price_elem.text_content().strip()
-                price_match = re.search(r'(\d+[.,]\d+)', price_text)
-                if price_match:
-                    price_str = price_match.group(1).replace('.', '').replace(',', '.')
-                    seller['price'] = float(price_str)
-                    seller['net_price'] = seller['price']
-            
-            # Eski fiyat - class="old-price"
-            old_price_elem = page.query_selector('.old-price')
-            if old_price_elem:
-                old_price_text = old_price_elem.text_content().strip()
-                price_match = re.search(r'(\d+[.,]\d+)', old_price_text)
-                if price_match:
-                    price_str = price_match.group(1).replace('.', '').replace(',', '.')
-                    seller['old_price'] = float(price_str)
-            
-            # Kupon - data-testid="coupon-text"
-            coupon_elem = page.query_selector('[data-testid="coupon-text"]')
-            if coupon_elem:
-                coupon_text = coupon_elem.text_content().strip()
-                seller['coupon'] = coupon_text
+            if price_matches:
+                # İlk fiyat (genelde indirimli fiyat)
+                price_str = price_matches[0].replace('.', '').replace(',', '.')
+                seller['price'] = float(price_str)
+                seller['net_price'] = seller['price']
                 
-                # Net fiyatı hesapla
-                coupon_match = re.search(r'%(\d+)', coupon_text)
-                if coupon_match:
-                    coupon_percent = int(coupon_match.group(1))
-                    if seller['price'] > 0:
-                        seller['net_price'] = seller['price'] * (1 - coupon_percent / 100)
+                # Eğer iki fiyat varsa, ikincisi eski fiyat
+                if len(price_matches) > 1:
+                    old_price_str = price_matches[1].replace('.', '').replace(',', '.')
+                    seller['old_price'] = float(old_price_str)
             
-            # Sepette indirim
-            basket_elem = page.query_selector('[class*="basket"]')
-            if basket_elem:
-                basket_text = basket_elem.text_content().strip()
-                if basket_text:
-                    seller['basket_discount'] = basket_text
+            # Kupon ve indirim bilgisi
+            if "İndirimli Kupon" in card_text or "Kupon" in card_text:
+                coupon_match = re.search(r'%(\d+)', card_text)
+                if coupon_match:
+                    seller['coupon'] = f"%{coupon_match.group(1)} Kupon"
+            
+            if "Sepette" in card_text and "%" in card_text:
+                basket_match = re.search(r'Sepette\s*%(\d+)', card_text)
+                if basket_match:
+                    seller['basket_discount'] = f"Sepette %{basket_match.group(1)} İndirim"
+                    # Net fiyatı hesapla
+                    basket_percent = int(basket_match.group(1))
+                    if seller['price'] > 0:
+                        seller['net_price'] = seller['price'] * (1 - basket_percent / 100)
             
             if seller['name'] and seller['price'] > 0:
                 return seller
             
             return None
         except Exception as e:
-            logger.warning(f"⚠️ Ana satıcı çıkarma hatası: {e}")
+            logger.warning(f"⚠️ Satıcı kartı çıkarma hatası: {e}")
             return None
     
-    def _extract_other_sellers(self, page) -> List[Dict]:
-        """Diğer satıcıları çek"""
+    def _extract_sellers_from_text(self, page_text: str, product_name: str) -> List[Dict]:
+        """Sayfadaki metinden satıcıları çıkar (alternatif yöntem)"""
         sellers = []
         try:
-            # "Diğer Satıcılar" bölümünü bul
-            # Her satıcı bir div içinde, class="merchant-item" veya benzer
+            lines = page_text.split('\n')
             
-            # Satıcı kartlarını bul
-            seller_items = page.query_selector_all('[data-testid="seller-card"]')
+            # Satıcı adlarını ve fiyatlarını ara
+            seller_pattern = r'([A-Z][a-zÇçĞğİıÖöŞşÜü]{2,})\s*(\d[.,]\d)\s*(\d{1,5}[.,]\d{3})\s*TL'
             
-            if not seller_items:
-                # Alternatif selector
-                seller_items = page.query_selector_all('.merchant-item')
+            matches = re.finditer(seller_pattern, page_text)
             
-            if not seller_items:
-                # Başka bir alternatif - div[class*="merchant"]
-                seller_items = page.query_selector_all('div[class*="merchant"]')
-            
-            logger.info(f"   📊 {len(seller_items)} satıcı kartı bulundu")
-            
-            for item in seller_items:
+            for match in matches:
                 try:
-                    seller = {}
+                    seller = {
+                        'name': match.group(1),
+                        'rating': float(match.group(2).replace(',', '.')),
+                        'price': float(match.group(3).replace('.', '').replace(',', '.')),
+                        'old_price': 0.0,
+                        'coupon': '',
+                        'basket_discount': '',
+                        'net_price': 0.0
+                    }
                     
-                    # Satıcı adı
-                    name_elem = item.query_selector('.merchant-name')
-                    if name_elem:
-                        seller['name'] = name_elem.text_content().strip()
+                    seller['net_price'] = seller['price']
                     
-                    # Fiyat
-                    price_elem = item.query_selector('.discounted')
-                    if not price_elem:
-                        price_elem = item.query_selector('.new-price')
-                    
-                    if price_elem:
-                        price_text = price_elem.text_content().strip()
-                        price_match = re.search(r'(\d+[.,]\d+)', price_text)
-                        if price_match:
-                            price_str = price_match.group(1).replace('.', '').replace(',', '.')
-                            seller['price'] = float(price_str)
-                    
-                    # Rating
-                    rating_elem = item.query_selector('.score-badge')
-                    if rating_elem:
-                        rating_text = rating_elem.text_content().strip()
-                        try:
-                            seller['rating'] = float(rating_text.replace(',', '.'))
-                        except:
-                            pass
-                    
-                    # Kupon
-                    coupon_elem = item.query_selector('[data-testid="coupon-text"]')
-                    if coupon_elem:
-                        seller['coupon'] = coupon_elem.text_content().strip()
-                    
-                    # Net fiyat
-                    seller['net_price'] = seller.get('price', 0.0)
-                    if 'coupon' in seller and '%' in seller['coupon']:
-                        coupon_match = re.search(r'%(\d+)', seller['coupon'])
-                        if coupon_match:
-                            coupon_percent = int(coupon_match.group(1))
-                            seller['net_price'] = seller['price'] * (1 - coupon_percent / 100)
-                    
-                    if seller.get('name') and seller.get('price', 0) > 0:
+                    if seller['name'] and seller['price'] > 0:
                         sellers.append(seller)
-                except Exception as e:
-                    logger.warning(f"⚠️ Satıcı kartı çıkarma hatası: {e}")
+                except:
                     continue
             
             return sellers
         except Exception as e:
-            logger.warning(f"⚠️ Diğer satıcılar çıkarma hatası: {e}")
+            logger.warning(f"⚠️ Metin çıkarma hatası: {e}")
             return []
     
     def close(self) -> None:
