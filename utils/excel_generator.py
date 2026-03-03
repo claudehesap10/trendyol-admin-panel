@@ -18,6 +18,37 @@ class ExcelGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
     
+    def generate(self, filepath: str, data: List[Dict]) -> str:
+        """Basit veri listesinden Excel oluştur"""
+        try:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Rapor"
+            
+            # Başlık satırı
+            if data:
+                headers = list(data[0].keys())
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=1, column=col)
+                    cell.value = header
+                    cell.font = Font(bold=True, color="FFFFFF", size=11)
+                    cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+                
+                # Veri satırları
+                for row_idx, item in enumerate(data, 2):
+                    for col_idx, (key, value) in enumerate(item.items(), 1):
+                        ws.cell(row=row_idx, column=col_idx).value = value
+            
+            # Dosyayı kaydet
+            Path(filepath).parent.mkdir(exist_ok=True)
+            wb.save(filepath)
+            logger.info(f"✅ Excel raporu oluşturuldu: {filepath}")
+            
+            return filepath
+        except Exception as e:
+            logger.error(f"❌ Excel raporu oluşturma hatası: {e}")
+            raise
+    
     def generate_report(self, products_data: List[Dict], store_name: str = "Trendyol") -> str:
         """Rapor oluştur ve dosya yolunu döndür"""
         try:
