@@ -123,18 +123,24 @@ class TrendyolScraper:
                 time.sleep(3)
                 
                 sellers = []
+                actual_product_name = product_name  # Varsayılan olarak liste adını kullan
                 
                 # Ürün adını çek - class="product-title variant-pdp"
                 product_title_elem = page.query_selector('.product-title.variant-pdp')
                 if product_title_elem:
                     actual_product_name = product_title_elem.text_content().strip()
-                    logger.info(f"   📦 Ürün: {actual_product_name}")
+                    logger.info(f"   📊 Ürün: {actual_product_name}")
+                    product_name = actual_product_name  # Doğru adı güncelle
                 
                 # Ana satıcıyı çek (sayfanın sağ tarafında)
                 main_seller = self._extract_main_seller(page)
                 if main_seller:
                     sellers.append(main_seller)
                     logger.info(f"   ✓ Ana Satıcı: {main_seller['name']} - {main_seller['price']} TL")
+                
+                # Sayfayı scroll et - "Diğer Satıcılar" bölümünü görünür kıl
+                page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                time.sleep(2)
                 
                 # Diğer satıcıları çek - "Diğer Satıcılar" bölümünden
                 other_sellers = self._extract_other_sellers(page)
@@ -145,6 +151,12 @@ class TrendyolScraper:
                 browser.close()
                 
                 logger.info(f"✅ Toplam {len(sellers)} satıcı çekildi")
+                
+                # Ürün adını güncellenmiş haliyle döndür
+                # Her satıcıya ürün adını ekle
+                for seller in sellers:
+                    seller['product_name'] = actual_product_name
+                
                 return sellers
         except Exception as e:
             logger.error(f"❌ Satıcı çekme hatası: {e}")

@@ -123,7 +123,9 @@ class ExcelGenerator:
             # Her satıcı için bir satır
             for idx, seller in enumerate(sellers):
                 # Ürün adı (HER satıcı satırında)
-                ws.cell(row=row, column=1).value = product_name
+                # Satıcıdan çekilmiş doğru adı kullan, yoksa varsayılan adı kullan
+                actual_name = seller.get('product_name', product_name)
+                ws.cell(row=row, column=1).value = actual_name
                 
                 # Ürün Linki
                 ws.cell(row=row, column=2).value = product.get('url', '')
