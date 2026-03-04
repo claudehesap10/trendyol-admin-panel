@@ -4,6 +4,10 @@ Ortam değişkenlerinden ayarları yükler
 """
 import os
 from typing import Optional
+from dotenv import load_dotenv
+
+# .env dosyasını yükle
+load_dotenv()
 
 class Config:
     """Uygulama konfigürasyonu"""
@@ -17,6 +21,13 @@ class Config:
     # Telegram Ayarları
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+    
+    # Email Ayarları
+    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_EMAIL: str = os.getenv("SMTP_EMAIL", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    RECIPIENT_EMAIL: str = os.getenv("RECIPIENT_EMAIL", "")
     
     # GitHub Ayarları
     GITHUB_TOKEN: Optional[str] = os.getenv("GITHUB_TOKEN")

@@ -19,11 +19,12 @@ class EmailSender:
     """Email gönderir"""
     
     def __init__(self):
-        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-        self.smtp_port = int(os.getenv('SMTP_PORT', 587))
-        self.sender_email = os.getenv('SMTP_EMAIL')
-        self.sender_password = os.getenv('SMTP_PASSWORD')
-        self.recipient_email = os.getenv('RECIPIENT_EMAIL')
+        from config.config import Config
+        self.smtp_server = Config.SMTP_SERVER
+        self.smtp_port = Config.SMTP_PORT
+        self.sender_email = Config.SMTP_EMAIL
+        self.sender_password = Config.SMTP_PASSWORD
+        self.recipient_email = Config.RECIPIENT_EMAIL
     
     def send_report(self, report_path: str, subject: str = None) -> bool:
         """Raporu email ile gönder"""
