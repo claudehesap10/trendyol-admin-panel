@@ -26,6 +26,7 @@ from config.config import Config
 from services.trendyol_scraper import TrendyolScraper
 from services.telegram_service import TelegramService
 from utils.excel_generator import ExcelGenerator
+from utils.email_sender import EmailSender
 
 class MainController:
     """Ana kontroller - tüm işlemleri yönetir"""
@@ -34,8 +35,10 @@ class MainController:
         self.config = Config
         self.scraper = None
         self.telegram = None
+        self.email_sender = None
         self.excel_gen = None
         self.start_time = None
+        self.report_path = None
     
     def run(self) -> bool:
         """Ana işlemi çalıştır"""
@@ -93,6 +96,9 @@ class MainController:
                 self.config.TELEGRAM_CHAT_ID
             )
             
+            # Email Sender
+            self.email_sender = EmailSender()
+            
             # Excel Generator
             self.excel_gen = ExcelGenerator(self.config.OUTPUT_DIR)
             
@@ -139,6 +145,14 @@ class MainController:
                 if not self.telegram.send_scan_report(report_path, total_sellers, scan_time):
                     logger.error("❌ Telegram'a rapor gönderilemedi!")
                     return False
+            
+            # Raporu email ile gönder
+            self.report_path = report_path
+            if self.email_sender:
+                if self.email_sender.send_report(report_path):
+                    logger.info("✅ Email gönderimi başarılı")
+                else:
+                    logger.warning("⚠️ Email gönderilemedi (opsiyonel)")
             
             logger.info("✅ Tarama tamamlandı")
             return True
