@@ -55,6 +55,24 @@ class TrendyolScraper:
                 page.goto(self.store_url, wait_until='domcontentloaded', timeout=60000)
                 time.sleep(3)
                 
+                # Infinite scroll ile tüm ürünleri yükle
+                logger.info("📜 Sayfayı scroll edip tüm ürünleri yüklüyorum...")
+                last_height = page.evaluate('document.body.scrollHeight')
+                scroll_count = 0
+                max_scrolls = 50
+                
+                while scroll_count < max_scrolls:
+                    page.evaluate('window.scrollBy(0, window.innerHeight)')
+                    time.sleep(0.5)
+                    new_height = page.evaluate('document.body.scrollHeight')
+                    if new_height == last_height:
+                        logger.info(f"✅ Tüm ürünler yüklendi ({scroll_count} scroll)")
+                        break
+                    last_height = new_height
+                    scroll_count += 1
+                    if scroll_count % 10 == 0:
+                        logger.info(f"  📜 Scroll {scroll_count}...")
+                
                 # Ürün linklerini bul
                 product_elements = page.query_selector_all('a[href*="?boutiqueId="]')
                 
@@ -63,7 +81,7 @@ class TrendyolScraper:
                 products = []
                 seen_ids = set()
                 
-                for elem in product_elements[:10]:
+                for elem in product_elements:
                     try:
                         href = elem.get_attribute('href')
                         text = elem.text_content()
