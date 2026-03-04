@@ -1,4 +1,3 @@
-import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -35,6 +34,42 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  // Email test endpoint
+  app.post("/api/test-email", async (req, res) => {
+    try {
+      const { smtpServer, smtpPort, smtpEmail, smtpPassword, recipientEmail } = req.body;
+      
+      // Nodemailer import (lazy load)
+      const nodemailer = await import("nodemailer");
+      
+      const transporter = nodemailer.default.createTransport({
+        host: smtpServer,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: {
+          user: smtpEmail,
+          pass: smtpPassword,
+        },
+      });
+
+      await transporter.verify();
+      
+      // Test email gönder
+      await transporter.sendMail({
+        from: smtpEmail,
+        to: recipientEmail,
+        subject: "Trendyol Admin Panel - Email Test",
+        html: "<h1>✅ Email bağlantısı başarılı!</h1><p>Bu bir test emailidir.</p>",
+      });
+
+      res.json({ success: true, message: "Email başarıyla gönderildi" });
+    } catch (error) {
+      console.error("Email test error:", error);
+      res.status(400).json({ success: false, error: String(error) });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

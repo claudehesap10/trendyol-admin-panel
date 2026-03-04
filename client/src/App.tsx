@@ -9,6 +9,7 @@ import Home from "./pages/Home";
 import Settings from "./pages/Settings";
 import WorkflowControl from "./pages/WorkflowControl";
 import ScanHistory from "./pages/ScanHistory";
+import PriceComparison from "./pages/PriceComparison";
 
 function DashboardRouter() {
   return (
@@ -18,6 +19,7 @@ function DashboardRouter() {
         <Route path={"/dashboard/settings"} component={Settings} />
         <Route path={"/dashboard/workflows"} component={WorkflowControl} />
         <Route path={"/dashboard/history"} component={ScanHistory} />
+        <Route path={"/dashboard/prices"} component={PriceComparison} />
         <Route component={NotFound} />
       </Switch>
     </DashboardLayout>

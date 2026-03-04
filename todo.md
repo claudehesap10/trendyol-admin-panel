@@ -29,3 +29,27 @@
 - [x] GitHub Actions workflow'unu güncelle (Secrets entegrasyonu)
 - [x] Kurulum rehberi yaz
 - [x] Checkpoint oluştur
+
+## Email ve Telegram Entegrasyonu
+- [x] Veritabanı şemasına email ayarlarını ekle
+- [x] Settings sayfasına email konfigürasyonu UI'sı ekle
+- [x] Birden fazla email ekleme/silme özelliği
+- [x] Telegram bağlantı test butonu
+- [x] Email bağlantı test butonu
+- [ ] Backend email test endpoint'i yaz
+- [ ] Telegram ve Email status gösterimi (ScanHistory'ye ekle)
+
+## Fiyat Karşılaştırma Tablosu
+- [x] PriceComparison sayfası oluştur
+- [x] GitHub Releases'tan rapor çek
+- [x] Tablo gösterimi (Ürün, Satıcı, Fiyat, Kupon, Rating)
+- [x] Arama ve filtreleme
+- [x] Sıralama (Fiyat, Puan, Satıcı)
+- [x] İstatistikler (Ortalama, Min, Max fiyat)
+- [ ] Excel indirme linki
+- [ ] Vercel'e deployment
+
+## GitHub Actions Entegrasyonu
+- [ ] Raporu JSON formatında GitHub Releases'a yükle
+- [ ] Telegram ve Email status'ü rapor ile birlikte gönder
+- [ ] Hata yönetimi ve retry mekanizması
