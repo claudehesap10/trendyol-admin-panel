@@ -63,7 +63,7 @@ jobs:
 
       - name: Raporları Artifacts'a yükle (Yedek)
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: trendyol-rapor-${{ github.run_number }}
           path: reports/*.xlsx
