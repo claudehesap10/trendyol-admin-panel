@@ -51,17 +51,6 @@ jobs:
           cd controller
           python main_controller.py
 
-      - name: Dosya adını standartlaştır
-        if: success()
-        run: |
-          cd reports
-          # En yeni xlsx dosyasını trendyol_rapor.xlsx olarak kopyala
-          LATEST_FILE=$(ls -t *.xlsx 2>/dev/null | head -1)
-          if [ -n "$LATEST_FILE" ]; then
-            cp "$LATEST_FILE" trendyol_rapor.xlsx
-            echo "Dosya adlandırıldı: $LATEST_FILE -> trendyol_rapor.xlsx"
-          fi
-
       - name: Raporları GitHub Releases'a yükle
         if: success()
         uses: softprops/action-gh-release@v1
