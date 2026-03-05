@@ -76,8 +76,7 @@ class ExcelGenerator:
             self._add_summary_sheet(wb, products_data)
             
             # Dosyayı kaydet
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"trendyol_report_{timestamp}.xlsx"
+            filename = "trendyol_rapor.xlsx"
             filepath = self.output_dir / filename
             
             wb.save(str(filepath))
