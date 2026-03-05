@@ -1,0 +1,9 @@
+{
+  "query": "DROP TABLE IF EXISTS scanHistory; DROP TABLE IF EXISTS settings;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2ybcupWqJeKZDvt.root --database KHTmwn2WrvPHEEk6qvbQwM --execute DROP TABLE IF EXISTS scanHistory; DROP TABLE IF EXISTS settings;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2155
+}

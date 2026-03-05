@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1772567923971,
+      "tag": "0000_round_scorpion",
+      "breakpoints": true
+    }
+  ]
 }

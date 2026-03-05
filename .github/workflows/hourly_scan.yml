@@ -1,0 +1,56 @@
+name: Trendyol Hourly Scan
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  
+  workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'Debug modu etkinleştir'
+        required: false
+        default: 'false'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p logs reports
+
+      - name: Run Trendyol Scanner
+        env:
+          TRENDYOL_STORE_URL: ${{ secrets.TRENDYOL_STORE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DEBUG_MODE: ${{ github.event.inputs.debug_mode }}
+        run: |
+          python controller/main_controller.py
+
+      - name: Upload report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trendyol-report-${{ github.run_number }}
+          path: reports/
+          retention-days: 30
+
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 7

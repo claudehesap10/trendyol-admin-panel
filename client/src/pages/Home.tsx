@@ -1,31 +1,39 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { getLoginUrl } from "@/const";
-import { Streamdown } from 'streamdown';
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
 export default function Home() {
-  // The userAuth hooks provides authentication state
-  // To implement login/logout functionality, simply call logout() or redirect to getLoginUrl()
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
-
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Hoş Geldiniz</h1>
+        <p className="text-muted-foreground mt-2">Trendyol Satıcı Analiz Paneline hoş geldiniz</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="border rounded-lg p-6 hover:bg-muted/50 transition-colors cursor-pointer">
+          <h3 className="font-semibold mb-2">⚙️ Ayarlar</h3>
+          <p className="text-sm text-muted-foreground">Trendyol, Telegram ve GitHub ayarlarınızı yapılandırın</p>
+        </div>
+        <div className="border rounded-lg p-6 hover:bg-muted/50 transition-colors cursor-pointer">
+          <h3 className="font-semibold mb-2">▶️ Workflow Kontrolü</h3>
+          <p className="text-sm text-muted-foreground">Taramayı manuel olarak başlatın ve durumunu izleyin</p>
+        </div>
+        <div className="border rounded-lg p-6 hover:bg-muted/50 transition-colors cursor-pointer">
+          <h3 className="font-semibold mb-2">📊 Tarama Geçmişi</h3>
+          <p className="text-sm text-muted-foreground">Geçmiş tarama işlemlerini ve raporlarını görüntüleyin</p>
+        </div>
+      </div>
+
+      <div className="border rounded-lg p-6 bg-blue-50">
+        <h2 className="font-semibold text-blue-900 mb-2">Başlamak İçin</h2>
+        <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
+          <li>Ayarlar sayfasından Trendyol mağaza URL'sini girin</li>
+          <li>Telegram bot token ve chat ID'sini ekleyin</li>
+          <li>GitHub token ve repository bilgilerini yapılandırın</li>
+          <li>Workflow Kontrolü sayfasından taramayı başlatın</li>
+        </ol>
+      </div>
     </div>
   );
 }
