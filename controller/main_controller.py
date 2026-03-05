@@ -5,8 +5,11 @@ Tüm süreci yönetir
 """
 import sys
 import logging
+import os
 from pathlib import Path
 from datetime import datetime
+
+os.makedirs('logs', exist_ok=True)  # bunu ekle
 
 # Logging konfigürasyonu
 logging.basicConfig(

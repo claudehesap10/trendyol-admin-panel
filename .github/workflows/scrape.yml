@@ -1,0 +1,79 @@
+name: Trendyol Scraper - Saatlik Tarama
+
+on:
+  schedule:
+    # Her saat başında çalış (UTC)
+    - cron: '0 * * * *'
+  # Manuel tetikleme
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Repository'yi klonla
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Bağımlılıkları yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install scrapling python-telegram-bot
+
+      - name: Playwright tarayıcılarını kur
+        run: |
+          playwright install chromium
+
+      - name: Scraper'ı çalıştır
+        env:
+          TRENDYOL_STORE_URL: ${{ secrets.TRENDYOL_STORE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          SCAN_TIMEOUT: ${{ secrets.SCAN_TIMEOUT }}
+          MAX_RETRIES: ${{ secrets.MAX_RETRIES }}
+          OUTPUT_FOLDER: reports
+          DEBUG_MODE: 'False'
+        run: |
+          cd controller
+          python main_controller.py
+
+      - name: Raporları GitHub Releases'a yükle
+        if: success()
+        uses: softprops/action-gh-release@v1
+        with:
+          files: reports/*.xlsx
+          tag_name: report-${{ github.run_number }}
+          body: "Trendyol fiyat karşilaşturması raporu - Tarama #${{ github.run_number }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Raporları Artifacts'a yükle (Yedek)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trendyol-rapor-${{ github.run_number }}
+          path: reports/*.xlsx
+          retention-days: 30
+
+      - name: Hata durumunda Telegram bildirimi
+        if: failure()
+        run: |
+          curl -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d text="❌ Trendyol scraper hatası! GitHub Actions #${{ github.run_number }} başarısız oldu."

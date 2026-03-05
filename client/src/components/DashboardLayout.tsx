@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Settings, Play, History } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Settings, Play, History, BarChart3 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -29,6 +29,7 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
+  { icon: BarChart3, label: "Raporlar", path: "/dashboard/reports" },
   { icon: Settings, label: "Ayarlar", path: "/dashboard/settings" },
   { icon: Play, label: "Workflow Kontrolü", path: "/dashboard/workflows" },
   { icon: History, label: "Tarama Geçmişi", path: "/dashboard/history" },

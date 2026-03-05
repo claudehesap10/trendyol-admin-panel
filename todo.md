@@ -29,3 +29,28 @@
 - [x] GitHub Actions workflow'unu güncelle (Secrets entegrasyonu)
 - [x] Kurulum rehberi yaz
 - [x] Checkpoint oluştur
+
+## GitHub Actions Automation (Phase 2)
+- [x] GitHub Actions workflow'u test et (manual trigger)
+- [x] Scrapling ile Cloudflare bypass'ı doğrula
+- [x] Excel rapor oluşturmayı test et
+- [x] GitHub Releases'a rapor yüklemeyi test et
+- [x] Email göndermeyi test et
+- [x] Telegram bildirimi test et
+
+## Dashboard Enhancements (Phase 3-4)
+- [x] Rapor görüntüleme sayfası ekle (GitHub Releases'tan çek)
+- [x] Rapor indirme linki ekle
+- [x] Arama ve filtreleme özelliği
+- [x] Sıralama özelliği
+- [x] İstatistikler (Ortalama, Min, Max fiyat)
+- [ ] Scan history'yi database'e kaydet
+- [ ] Tarama durum göstergesi ekle
+- [ ] Hata log'ları göster
+
+## System Testing & Optimization (Phase 5)
+- [ ] Saatlik schedule'ı test et
+- [ ] Proxy rotation'ı test et
+- [ ] Rate limiting'i test et
+- [ ] Error recovery'yi test et
+- [ ] Performance optimization

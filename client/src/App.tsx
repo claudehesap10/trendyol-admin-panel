@@ -5,10 +5,11 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import DashboardLayout from "./components/DashboardLayout";
-import Home from "./pages/Home";
-import Settings from "./pages/Settings";
-import WorkflowControl from "./pages/WorkflowControl";
-import ScanHistory from "./pages/ScanHistory";
+import Home from "@/pages/Home";
+import Settings from "@/pages/Settings";
+import WorkflowControl from "@/pages/WorkflowControl";
+import ScanHistory from "@/pages/ScanHistory";
+import Reports from "@/pages/Reports";
 
 function DashboardRouter() {
   return (
@@ -18,6 +19,7 @@ function DashboardRouter() {
         <Route path={"/dashboard/settings"} component={Settings} />
         <Route path={"/dashboard/workflows"} component={WorkflowControl} />
         <Route path={"/dashboard/history"} component={ScanHistory} />
+        <Route path={"/dashboard/reports"} component={Reports} />
         <Route component={NotFound} />
       </Switch>
     </DashboardLayout>
