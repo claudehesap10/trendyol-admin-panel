@@ -1,6 +1,6 @@
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, settings, scanHistory, InsertSettings, InsertScanHistory } from "../drizzle/schema";
+import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,54 +89,4 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getOrCreateSettings(userId: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-
-  let setting = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
-  
-  if (setting.length === 0) {
-    await db.insert(settings).values({
-      userId,
-      trendyolUrl: "https://www.trendyol.com/sr?mid=1126746&os=1",
-      cronExpression: "0 * * * *",
-    });
-    setting = await db.select().from(settings).where(eq(settings.userId, userId)).limit(1);
-  }
-  
-  return setting[0];
-}
-
-export async function updateSettings(userId: number, data: Partial<InsertSettings>) {
-  const db = await getDb();
-  if (!db) return undefined;
-  
-  const result = await db.update(settings).set(data).where(eq(settings.userId, userId));
-  return result;
-}
-
-export async function getScanHistory(userId: number, limit: number = 20) {
-  const db = await getDb();
-  if (!db) return [];
-  
-  return await db.select().from(scanHistory).where(eq(scanHistory.userId, userId)).orderBy(desc(scanHistory.startedAt)).limit(limit);
-}
-
-export async function createScanHistory(userId: number, workflowRunId: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  
-  const result = await db.insert(scanHistory).values({
-    userId,
-    workflowRunId,
-    status: "pending",
-  });
-  return result;
-}
-
-export async function updateScanHistory(id: number, data: Partial<InsertScanHistory>) {
-  const db = await getDb();
-  if (!db) return undefined;
-  
-  return await db.update(scanHistory).set(data).where(eq(scanHistory.id, id));
-}
+// TODO: add feature queries here as your schema grows.
