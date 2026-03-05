@@ -7,96 +7,78 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
 interface ReportData {
-  productName: string;
-  seller: string;
-  price: number;
-  originalPrice?: number;
-  discount?: number;
-  rating: number;
-  reviews: number;
+  [key: string]: any;
+  "Ürün Adı"?: string;
+  "Satıcı Adı"?: string;
+  "Fiyat"?: number;
+  "Rating"?: number;
+  // Fallback to English names
+  productName?: string;
+  seller?: string;
+  price?: number;
+  rating?: number;
+  reviews?: number;
   coupon?: string;
-  stock: string;
+  stock?: string;
 }
 
 export default function Reports() {
   const [reports, setReports] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [tableData, setTableData] = useState<ReportData[]>([]);
   const [filteredData, setFilteredData] = useState<ReportData[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // GitHub Releases'tan raporları çek
+  // Backend'den raporları çek
   const fetchReports = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(
-        "https://api.github.com/repos/claudehesap10/trendyol-admin-panel/releases",
-        {
-          headers: {
-            Accept: "application/vnd.github.v3+json",
-          },
-        }
-      );
-
-      if (!response.ok) throw new Error("Failed to fetch releases");
-
-      const releases = await response.json();
-      setReports(releases);
-
-      // En son release'ı otomatik olarak yükle
-      if (releases.length > 0) {
-        const latestRelease = releases[0];
-        if (latestRelease.assets && latestRelease.assets.length > 0) {
-          const excelFile = latestRelease.assets.find((asset: any) =>
-            asset.name.endsWith(".xlsx")
-          );
-          if (excelFile) {
-            await loadExcelReport(excelFile.browser_download_url);
-          }
-        }
+      const response = await fetch("/api/reports/latest");
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      toast.success("Raporlar başarıyla yüklendi!");
+      
+      const reportData = await response.json();
+      
+      if (reportData?.data && Array.isArray(reportData.data)) {
+        const data = reportData.data as ReportData[];
+        setTableData(data);
+        setFilteredData(data);
+        setReports(reportData.releases || []);
+        toast.success(`Rapor başarıyla yüklendi! (${data.length} ürün)`);
+      } else {
+        toast.warning("Rapor verisi bulunamadı");
+      }
     } catch (error) {
       console.error("Error fetching reports:", error);
-      toast.error("Raporlar yüklenirken hata oluştu");
+      toast.error(`Rapor yüklenirken hata oluştu: ${error instanceof Error ? error.message : "Bilinmeyen hata"}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Excel dosyasını yükle ve parse et
-  const loadExcelReport = async (url: string) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json<ReportData>(worksheet);
-
-      setTableData(data);
-      setFilteredData(data);
-      toast.success("Excel raporu başarıyla yüklendi!");
-    } catch (error) {
-      console.error("Error loading Excel:", error);
-      toast.error("Excel dosyası yüklenirken hata oluştu");
-    }
-  };
+  useEffect(() => {
+    fetchReports();
+  }, []);
 
   // Arama filtresi
   const handleSearch = (value: string) => {
     setSearchTerm(value);
-    const filtered = tableData.filter((item) =>
-      item.productName?.toLowerCase().includes(value.toLowerCase()) ||
-      item.seller?.toLowerCase().includes(value.toLowerCase())
-    );
+    const filtered = tableData.filter((item) => {
+      const productName = item["Ürün Adı"] || item.productName || "";
+      const seller = item["Satıcı Adı"] || item.seller || "";
+      return (
+        String(productName).toLowerCase().includes(value.toLowerCase()) ||
+        String(seller).toLowerCase().includes(value.toLowerCase())
+      );
+    });
     setFilteredData(filtered);
   };
 
   // Sıralama
-  const handleSort = (key: keyof ReportData) => {
+  const handleSort = (key: string) => {
     let direction: "asc" | "desc" = "asc";
     if (sortConfig?.key === key && sortConfig.direction === "asc") {
       direction = "desc";
@@ -137,12 +119,8 @@ export default function Reports() {
     toast.success("Rapor başarıyla indirildi!");
   };
 
-  useEffect(() => {
-    fetchReports();
-  }, []);
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4">
       <div>
         <h1 className="text-3xl font-bold">Fiyat Karşılaştırma Raporları</h1>
         <p className="text-muted-foreground mt-2">
@@ -178,29 +156,33 @@ export default function Reports() {
 
           {/* İstatistikler */}
           {filteredData.length > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-muted p-3 rounded-lg">
                 <p className="text-sm text-muted-foreground">Toplam Ürün</p>
                 <p className="text-2xl font-bold">{filteredData.length}</p>
               </div>
-              <div className="bg-muted p-3 rounded-lg">
-                <p className="text-sm text-muted-foreground">Ortalama Fiyat</p>
-                <p className="text-2xl font-bold">
-                  ₺{(filteredData.reduce((sum, item) => sum + item.price, 0) / filteredData.length).toFixed(2)}
-                </p>
-              </div>
-              <div className="bg-muted p-3 rounded-lg">
-                <p className="text-sm text-muted-foreground">Min Fiyat</p>
-                <p className="text-2xl font-bold">
-                  ₺{Math.min(...filteredData.map((item) => item.price)).toFixed(2)}
-                </p>
-              </div>
-              <div className="bg-muted p-3 rounded-lg">
-                <p className="text-sm text-muted-foreground">Max Fiyat</p>
-                <p className="text-2xl font-bold">
-                  ₺{Math.max(...filteredData.map((item) => item.price)).toFixed(2)}
-                </p>
-              </div>
+              {filteredData.some(item => typeof item.price === 'number') && (
+                <>
+                  <div className="bg-muted p-3 rounded-lg">
+                    <p className="text-sm text-muted-foreground">Ortalama Fiyat</p>
+                    <p className="text-2xl font-bold">
+                      ₺{(filteredData.reduce((sum, item) => sum + (typeof item.price === 'number' ? item.price : 0), 0) / filteredData.length).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="bg-muted p-3 rounded-lg">
+                    <p className="text-sm text-muted-foreground">Min Fiyat</p>
+                    <p className="text-2xl font-bold">
+                      ₺{Math.min(...(filteredData.filter(item => typeof item.price === 'number').map((item) => item.price as number) || [Infinity])).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="bg-muted p-3 rounded-lg">
+                    <p className="text-sm text-muted-foreground">Max Fiyat</p>
+                    <p className="text-2xl font-bold">
+                      ₺{Math.max(...(filteredData.filter(item => typeof item.price === 'number').map((item) => item.price as number) || [-Infinity])).toFixed(2)}
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </CardContent>
@@ -258,17 +240,26 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((item, index) => (
+                  {filteredData.map((item, index) => {
+                    const productName = item["Ürün Adı"] || item.productName || "N/A";
+                    const seller = item["Satıcı Adı"] || item.seller || "N/A";
+                    const price = item["Fiyat"] || item.price || 0;
+                    const rating = item["Rating"] || item.rating || 0;
+                    const reviews = item.reviews || 0;
+                    const priceNum = typeof price === 'number' ? price : parseFloat(String(price)) || 0;
+                    const ratingNum = typeof rating === 'number' ? rating : parseFloat(String(rating)) || 0;
+                    
+                    return (
                     <tr key={index} className="border-b hover:bg-muted/50">
-                      <td className="py-3 px-4">{item.productName}</td>
-                      <td className="py-3 px-4">{item.seller}</td>
-                      <td className="text-right py-3 px-4 font-semibold">₺{item.price.toFixed(2)}</td>
+                      <td className="py-3 px-4">{productName}</td>
+                      <td className="py-3 px-4">{seller}</td>
+                      <td className="text-right py-3 px-4 font-semibold">₺{priceNum.toFixed(2)}</td>
                       <td className="text-right py-3 px-4">
                         <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-semibold">
-                          {item.rating.toFixed(1)} ⭐
+                          {ratingNum.toFixed(1)} ⭐
                         </span>
                       </td>
-                      <td className="text-right py-3 px-4 text-muted-foreground">{item.reviews}</td>
+                      <td className="text-right py-3 px-4 text-muted-foreground">{reviews}</td>
                       <td className="py-3 px-4">
                         {item.coupon ? (
                           <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-semibold">
@@ -290,7 +281,8 @@ export default function Reports() {
                         </span>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -322,14 +314,7 @@ export default function Reports() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        const excelFile = release.assets.find((asset: any) =>
-                          asset.name.endsWith(".xlsx")
-                        );
-                        if (excelFile) {
-                          loadExcelReport(excelFile.browser_download_url);
-                        }
-                      }}
+                      onClick={fetchReports}
                     >
                       Yükle
                     </Button>

@@ -35,6 +35,56 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  
+  // Reports API endpoint
+  app.get("/api/reports/latest", async (req, res) => {
+    try {
+      const response = await fetch(
+        "https://api.github.com/repos/claudehesap10/trendyol-admin-panel/releases",
+        {
+          headers: {
+            Accept: "application/vnd.github.v3+json",
+          },
+        }
+      );
+
+      if (!response.ok) throw new Error("Failed to fetch releases");
+
+      const releases = await response.json();
+
+      if (releases.length === 0) {
+        return res.json({ data: [], releases: [] });
+      }
+
+      const latestRelease = releases[0];
+      const excelFile = latestRelease.assets?.find((asset: any) =>
+        asset.name.endsWith(".xlsx")
+      );
+
+      if (!excelFile) {
+        return res.json({ data: [], releases });
+      }
+
+      const downloadUrl = `https://github.com/claudehesap10/trendyol-admin-panel/releases/download/${latestRelease.tag_name}/${excelFile.name}`;
+      const fileResponse = await fetch(downloadUrl);
+
+      if (!fileResponse.ok) throw new Error("Failed to download Excel");
+
+      const buffer = await fileResponse.arrayBuffer();
+
+      // Import XLSX dynamically
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(worksheet);
+
+      res.json({ data, releases });
+    } catch (error) {
+      console.error("Error fetching reports:", error);
+      res.status(500).json({ error: "Failed to fetch reports" });
+    }
+  });
+  
   // tRPC API
   app.use(
     "/api/trpc",

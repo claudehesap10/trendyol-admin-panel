@@ -44,6 +44,9 @@
 - [x] Arama ve filtreleme özelliği
 - [x] Sıralama özelliği
 - [x] İstatistikler (Ortalama, Min, Max fiyat)
+- [x] Express API endpoint'i (/api/reports/latest)
+- [x] Excel parse ve JSON dönüşü
+- [x] Türkçe column mapping
 - [ ] Scan history'yi database'e kaydet
 - [ ] Tarama durum göstergesi ekle
 - [ ] Hata log'ları göster

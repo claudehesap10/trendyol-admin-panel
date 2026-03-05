@@ -21,7 +21,13 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+  // Skip Vite for API routes
   app.use("*", async (req, res, next) => {
+    // Don't serve HTML for API routes
+    if (req.originalUrl.startsWith("/api/")) {
+      return next();
+    }
+    
     const url = req.originalUrl;
 
     try {

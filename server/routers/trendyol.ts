@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getOrCreateSettings, updateSettings, getScanHistory } from "../db";
 import { GitHubService } from "../github.service";
+import * as XLSX from "xlsx";
 
 export const trendyolRouter = router({
   settings: router({
@@ -79,6 +80,58 @@ export const trendyolRouter = router({
   history: router({
     list: protectedProcedure.query(async ({ ctx }) => {
       return await getScanHistory(ctx.user.id);
+    }),
+  }),
+
+  reports: router({
+    getLatest: publicProcedure.query(async () => {
+      try {
+        // GitHub API'den releases'ı çek
+        const response = await fetch(
+          "https://api.github.com/repos/claudehesap10/trendyol-admin-panel/releases",
+          {
+            headers: {
+              Accept: "application/vnd.github.v3+json",
+            },
+          }
+        );
+
+        if (!response.ok) throw new Error("Failed to fetch releases");
+
+        const releases = await response.json();
+
+        // En son release'ı bul
+        if (releases.length === 0) {
+          return { data: [], releases: [] };
+        }
+
+        const latestRelease = releases[0];
+        const excelFile = latestRelease.assets?.find((asset: any) =>
+          asset.name.endsWith(".xlsx")
+        );
+
+        if (!excelFile) {
+          return { data: [], releases };
+        }
+
+        // Excel dosyasını indir
+        const downloadUrl = `https://github.com/claudehesap10/trendyol-admin-panel/releases/download/${latestRelease.tag_name}/${excelFile.name}`;
+        const fileResponse = await fetch(downloadUrl);
+
+        if (!fileResponse.ok) throw new Error("Failed to download Excel");
+
+        const buffer = await fileResponse.arrayBuffer();
+
+        // xlsx ile parse et
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(worksheet);
+
+        return { data, releases };
+      } catch (error) {
+        console.error("Error fetching reports:", error);
+        throw new Error("Failed to fetch reports");
+      }
     }),
   }),
 });
