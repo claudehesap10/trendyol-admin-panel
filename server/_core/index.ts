@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { ScraperService } from "../scraper.service";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,6 +36,21 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  
+  // Scraper API endpoint
+  app.get("/api/scrape", async (req, res) => {
+    try {
+      const result = await ScraperService.runScraper();
+      res.json(result);
+    } catch (error) {
+      console.error("Scraper endpoint error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+      });
+    }
+  });
+  
   // tRPC API
   app.use(
     "/api/trpc",
