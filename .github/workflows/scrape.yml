@@ -55,9 +55,19 @@ jobs:
         with:
           files: reports/*.xlsx
           tag_name: report-${{ github.run_number }}
-          body: "Trendyol fiyat karşılaştırması raporu - Tarama #${{ github.run_number }}"
+          body: "Trendyol fiyat karşilaşturması raporu - Tarama #${{ github.run_number }}"
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Raporları Artifacts'a yükle (Yedek)
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: trendyol-rapor-${{ github.run_number }}
+          path: reports/*.xlsx
+          retention-days: 30
 
       - name: Hata durumunda Telegram bildirimi
         if: failure()
