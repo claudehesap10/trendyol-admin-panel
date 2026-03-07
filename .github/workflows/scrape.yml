@@ -51,6 +51,16 @@ jobs:
           cd controller
           python main_controller.py
 
+      - name: Dosyaları listele
+        if: always()
+        run: |
+          echo "=== reports/ klasöründe dosyalar ==="
+          ls -lah reports/ || echo "reports/ klasörü bulunamadı"
+          echo ""
+          echo "=== Tüm xlsx dosyaları ==="
+          find . -name "*.xlsx" -type f 2>/dev/null || echo "xlsx dosyası bulunamadı"
+          
+
       - name: Raporları GitHub Releases'a yükle
         if: success()
         uses: softprops/action-gh-release@v1
