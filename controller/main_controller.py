@@ -121,8 +121,10 @@ class MainController:
                 if not self.telegram.send_start_notification():
                     logger.warning("⚠️ Başlangıç bildirimi gönderilemedi")
             
-            # Ürünleri çek
-            products = self.scraper.fetch_products()
+            # Ürünleri çek - Önce API ile dene
+            logger.info("🔄 API ile tüm ürünler çekiliyor...")
+            products = self.scraper.fetch_products_via_api()
+            
             if not products:
                 logger.warning("⚠️ Hiçbir ürün çekilemedi")
                 return False
@@ -131,11 +133,12 @@ class MainController:
             
             # Her ürün için satıcıları çek
             products_with_sellers = []
-            for product in products:
+            for i, product in enumerate(products, 1):
+                logger.info(f"[{i}/{len(products)}] İşleniyor: {product['name']}")
                 sellers = self.scraper.fetch_sellers_for_product(product['url'], product['name'])
                 product['sellers'] = sellers
                 products_with_sellers.append(product)
-                logger.info(f"  ✓ {product['name']}: {len(sellers)} satıcı")
+                logger.info(f"  ✓ {len(sellers)} satıcı bulundu")
             
             # Excel raporu oluştur
             report_path = self.excel_gen.generate_report(products_with_sellers)
