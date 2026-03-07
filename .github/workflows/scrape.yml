@@ -65,7 +65,7 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v1
         with:
-          files: reports/trendyol_rapor.xlsx
+          files: controller/reports/trendyol_rapor.xlsx
           tag_name: report-${{ github.run_number }}
           body: "Trendyol fiyat karşilaşturması raporu - Tarama #${{ github.run_number }}"
           draft: false
