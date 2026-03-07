@@ -1,16 +1,20 @@
-name: Trendyol Scraper - Saatlik Tarama
+name: Trendyol Scraper - Günlük 3 Tarama
 
 on:
   schedule:
-    # Her saat başında çalış (UTC)
-    - cron: '0 * * * *'
+    # Sabah 09:00 (UTC 06:00)
+    - cron: '0 6 * * *'
+    # Öğle 13:00 (UTC 10:00)
+    - cron: '0 10 * * *'
+    # Akşam 19:00 (UTC 16:00)
+    - cron: '0 16 * * *'
   # Manuel tetikleme
   workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60  # 255 ürün için yeterli süre
     permissions:
       contents: write
 
@@ -65,7 +69,7 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v1
         with:
-          files: controller/reports/trendyol_rapor.xlsx
+          files: reports/trendyol_rapor.xlsx
           tag_name: report-${{ github.run_number }}
           body: "Trendyol fiyat karşilaşturması raporu - Tarama #${{ github.run_number }}"
           draft: false
@@ -78,7 +82,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trendyol-rapor-${{ github.run_number }}
-          path: controller/reports/*.xlsx
+          path: reports/*.xlsx
           retention-days: 30
 
       - name: Hata durumunda Telegram bildirimi
