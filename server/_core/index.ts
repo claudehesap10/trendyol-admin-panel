@@ -48,7 +48,10 @@ async function startServer() {
         }
       );
 
-      if (!response.ok) throw new Error("Failed to fetch releases");
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch releases: ${response.status} - ${errorText}`);
+      }
 
       const releases = await response.json();
 
