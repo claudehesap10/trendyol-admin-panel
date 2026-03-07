@@ -26,6 +26,7 @@ export default function Reports() {
   const [searchText, setSearchText] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [selectedSeller, setSelectedSeller] = useState<string>("");
+  const [lastScanTime, setLastScanTime] = useState<string>("");
 
   // Backend'den rapor çek
   const fetchReport = async () => {
@@ -36,6 +37,13 @@ export default function Reports() {
 
       const result = await response.json();
       if (result?.data && Array.isArray(result.data)) {
+        // Release tarihi çek
+        if (result.releases && result.releases.length > 0) {
+          const latestRelease = result.releases[0];
+          const releaseDate = new Date(latestRelease.published_at).toLocaleString('tr-TR');
+          setLastScanTime(releaseDate);
+        }
+
         // Best price hesapla
         const productPrices: { [key: string]: number } = {};
         result.data.forEach((item: ReportData) => {
@@ -122,11 +130,7 @@ export default function Reports() {
 
   // Son tarama süresi
   const getLastScanTime = () => {
-    if (data.length === 0) return "Veri yok";
-    // Backend'den gelen en son release tarihi
-    const now = new Date();
-    // İlk veri yüklenme zamanı (simule edilmiş)
-    return now.toLocaleString('tr-TR');
+    return lastScanTime || "Veri yüklenıyor...";
   };
 
   // Ürün grupları oluştur (tüm data üzerinde)
