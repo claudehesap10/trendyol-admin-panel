@@ -1,6 +1,7 @@
+"use client";
 import { useState, useEffect } from "react";
-import { Table, Button, Input, Space, Spin, Empty, message, Card } from "antd";
-import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Table, Button, Input, Space, Spin, Empty, message, Card, Select, Row, Col, Statistic, Tag } from "antd";
+import { DownloadOutlined, ReloadOutlined, FilterOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import "./Reports.css";
 
@@ -15,6 +16,7 @@ interface ReportData {
   "Son Fiyat (TL)"?: number;
   "Rating"?: number;
   "Notlar"?: string;
+  isBestPrice?: boolean;
 }
 
 export default function Reports() {
@@ -22,6 +24,8 @@ export default function Reports() {
   const [filteredData, setFilteredData] = useState<ReportData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<string>("");
+  const [selectedSeller, setSelectedSeller] = useState<string>("");
 
   // Backend'den rapor çek
   const fetchReport = async () => {
@@ -32,10 +36,24 @@ export default function Reports() {
 
       const result = await response.json();
       if (result?.data && Array.isArray(result.data)) {
-        const dataWithKeys = result.data.map((item: ReportData, index: number) => ({
-          ...item,
-          key: `${index}`,
-        }));
+        // Best price hesapla
+        const productPrices: { [key: string]: number } = {};
+        result.data.forEach((item: ReportData) => {
+          const productName = item["Ürün Adı"] || "";
+          const price = item["Son Fiyat (TL)"] || 0;
+          if (productName && (!productPrices[productName] || price < productPrices[productName])) {
+            productPrices[productName] = price;
+          }
+        });
+
+        const dataWithKeys = result.data.map((item: ReportData, index: number) => {
+          const productName = item["Ürün Adı"] || "";
+          return {
+            ...item,
+            key: `${index}`,
+            isBestPrice: item["Son Fiyat (TL)"] === productPrices[productName],
+          };
+        });
         setData(dataWithKeys);
         setFilteredData(dataWithKeys);
         message.success(`${dataWithKeys.length} ürün yüklendi`);
@@ -53,18 +71,33 @@ export default function Reports() {
     fetchReport();
   }, []);
 
-  // Arama filtresi
-  const handleSearch = (value: string) => {
-    setSearchText(value);
-    const filtered = data.filter((item) =>
-      Object.values(item).some(
-        (val) =>
-          val &&
-          val.toString().toLowerCase().includes(value.toLowerCase())
-      )
-    );
+  // Filtreleme
+  useEffect(() => {
+    let filtered = data;
+
+    // Ürün adı filtresi
+    if (selectedProduct) {
+      filtered = filtered.filter((item) => item["Ürün Adı"] === selectedProduct);
+    }
+
+    // Satıcı filtresi
+    if (selectedSeller) {
+      filtered = filtered.filter((item) => item["Satıcı"] === selectedSeller);
+    }
+
+    // Arama filtresi
+    if (searchText) {
+      filtered = filtered.filter((item) =>
+        Object.values(item).some(
+          (val) =>
+            val &&
+            val.toString().toLowerCase().includes(searchText.toLowerCase())
+        )
+      );
+    }
+
     setFilteredData(filtered);
-  };
+  }, [selectedProduct, selectedSeller, searchText, data]);
 
   // Excel indir
   const downloadExcel = () => {
@@ -73,11 +106,26 @@ export default function Reports() {
       return;
     }
 
-    const ws = XLSX.utils.json_to_sheet(data);
+    const exportData = data.map(({ key, isBestPrice, ...rest }) => rest);
+    const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Rapor");
     XLSX.writeFile(wb, "trendyol_rapor.xlsx");
     message.success("Excel dosyası indirildi");
+  };
+
+  // Ürün adı listesi
+  const productNames = Array.from(new Set(data.map((item) => item["Ürün Adı"]).filter(Boolean))) as string[];
+
+  // Satıcı listesi
+  const sellers = Array.from(new Set(data.map((item) => item["Satıcı"]).filter(Boolean))) as string[];
+
+  // İstatistikler
+  const stats = {
+    totalProducts: data.length,
+    avgPrice: data.length > 0 ? (data.reduce((sum, item) => sum + (item["Son Fiyat (TL)"] || 0), 0) / data.length).toFixed(2) : 0,
+    minPrice: data.length > 0 ? Math.min(...data.map((item) => item["Son Fiyat (TL)"] || 0)).toFixed(2) : 0,
+    maxPrice: data.length > 0 ? Math.max(...data.map((item) => item["Son Fiyat (TL)"] || 0)).toFixed(2) : 0,
   };
 
   // Tablo sütunları
@@ -87,10 +135,13 @@ export default function Reports() {
       dataIndex: "Ürün Adı",
       key: "Ürün Adı",
       width: 250,
-      render: (text: string) => (
-        <a href={data.find(d => d["Ürün Adı"] === text)?.["Ürün Linki"]} target="_blank" rel="noopener noreferrer">
-          {text}
-        </a>
+      render: (text: string, record: ReportData) => (
+        <div>
+          <a href={record["Ürün Linki"]} target="_blank" rel="noopener noreferrer">
+            {text}
+          </a>
+          {record.isBestPrice && <Tag color="gold" style={{ marginLeft: 8 }}>En Ucuz</Tag>}
+        </div>
       ),
     },
     {
@@ -98,145 +149,148 @@ export default function Reports() {
       dataIndex: "Satıcı",
       key: "Satıcı",
       width: 150,
+      sorter: (a: ReportData, b: ReportData) => (a["Satıcı"] || "").localeCompare(b["Satıcı"] || ""),
     },
     {
       title: "Orijinal Fiyat",
       dataIndex: "Orijinal Fiyat (TL)",
       key: "Orijinal Fiyat (TL)",
       width: 130,
-      sorter: (a: ReportData, b: ReportData) =>
-        (a["Orijinal Fiyat (TL)"] || 0) - (b["Orijinal Fiyat (TL)"] || 0),
-      render: (price: number) => `₺${price?.toFixed(2) || "0.00"}`,
+      render: (price: number) => `₺${price?.toFixed(2) || "N/A"}`,
+      sorter: (a: ReportData, b: ReportData) => (a["Orijinal Fiyat (TL)"] || 0) - (b["Orijinal Fiyat (TL)"] || 0),
     },
     {
       title: "Son Fiyat",
       dataIndex: "Son Fiyat (TL)",
       key: "Son Fiyat (TL)",
       width: 130,
-      sorter: (a: ReportData, b: ReportData) =>
-        (a["Son Fiyat (TL)"] || 0) - (b["Son Fiyat (TL)"] || 0),
-      render: (price: number) => `₺${price?.toFixed(2) || "0.00"}`,
+      render: (price: number, record: ReportData) => (
+        <span style={{ color: record.isBestPrice ? "#faad14" : "inherit", fontWeight: record.isBestPrice ? "bold" : "normal" }}>
+          ₺{price?.toFixed(2) || "N/A"}
+        </span>
+      ),
+      sorter: (a: ReportData, b: ReportData) => (a["Son Fiyat (TL)"] || 0) - (b["Son Fiyat (TL)"] || 0),
     },
     {
       title: "Rating",
       dataIndex: "Rating",
       key: "Rating",
       width: 100,
-      sorter: (a: ReportData, b: ReportData) =>
-        (a.Rating || 0) - (b.Rating || 0),
-      render: (rating: number) => `${rating?.toFixed(1) || "0.0"} ⭐`,
+      render: (rating: number) => (
+        <span>
+          {rating?.toFixed(1) || "N/A"} ⭐
+        </span>
+      ),
+      sorter: (a: ReportData, b: ReportData) => (a["Rating"] || 0) - (b["Rating"] || 0),
     },
     {
       title: "Kupon",
       dataIndex: "Kupon İndirimi",
       key: "Kupon İndirimi",
       width: 150,
+      render: (text: string) => text || "-",
     },
     {
       title: "Sepette",
       dataIndex: "Sepette İndirimi",
       key: "Sepette İndirimi",
-      width: 120,
-    },
-    {
-      title: "Notlar",
-      dataIndex: "Notlar",
-      key: "Notlar",
       width: 150,
+      render: (text: string) => text || "-",
     },
   ];
 
   return (
-    <div className="reports-container">
-      <Card className="reports-card">
-        <div className="reports-header">
-          <h1>Trendyol Fiyat Raporları</h1>
-          <p>GitHub Releases'tan otomatik olarak güncellenen raporlar</p>
-        </div>
+    <div style={{ padding: "20px" }}>
+      <Card>
+        <h1>📊 Trendyol Fiyat Raporları</h1>
+        <p>GitHub Releases'tan otomatik olarak güncellenen raporlar</p>
 
-        <div className="reports-controls">
-          <Space>
-            <Input
-              placeholder="Ürün, satıcı adı ile ara..."
-              value={searchText}
-              onChange={(e) => handleSearch(e.target.value)}
-              style={{ width: 300 }}
-            />
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={fetchReport}
-              loading={loading}
-            >
-              Yenile
-            </Button>
-            <Button
-              type="primary"
-              icon={<DownloadOutlined />}
-              onClick={downloadExcel}
-              disabled={data.length === 0}
-            >
-              Excel İndir
-            </Button>
+        {/* İstatistikler */}
+        <Row gutter={16} style={{ marginBottom: 20 }}>
+          <Col xs={12} sm={6}>
+            <Statistic title="Toplam Ürün" value={stats.totalProducts} />
+          </Col>
+          <Col xs={12} sm={6}>
+            <Statistic title="Ortalama Fiyat" value={`₺${stats.avgPrice}`} />
+          </Col>
+          <Col xs={12} sm={6}>
+            <Statistic title="Min Fiyat" value={`₺${stats.minPrice}`} />
+          </Col>
+          <Col xs={12} sm={6}>
+            <Statistic title="Max Fiyat" value={`₺${stats.maxPrice}`} />
+          </Col>
+        </Row>
+
+        {/* Kontrol Paneli */}
+        <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <Button 
+                type="primary" 
+                icon={<ReloadOutlined />} 
+                onClick={fetchReport}
+                loading={loading}
+              >
+                Yenile
+              </Button>
+              <Button 
+                type="default" 
+                icon={<DownloadOutlined />} 
+                onClick={downloadExcel}
+              >
+                Excel İndir
+              </Button>
+              <Button 
+                type="default" 
+                onClick={() => window.location.href = "/trend"}
+              >
+                Trend Analizi
+              </Button>
+            </div>
+
+            {/* Filtreleme */}
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+              <FilterOutlined />
+              <Input
+                placeholder="Ürün adı veya satıcı ile ara..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                style={{ width: "250px" }}
+              />
+              <Select
+                placeholder="Ürün Adı Seç"
+                allowClear
+                value={selectedProduct || undefined}
+                onChange={setSelectedProduct}
+                style={{ width: "250px" }}
+                options={productNames.map((name) => ({ label: name, value: name }))}
+              />
+              <Select
+                placeholder="Satıcı Seç"
+                allowClear
+                value={selectedSeller || undefined}
+                onChange={setSelectedSeller}
+                style={{ width: "200px" }}
+                options={sellers.map((seller) => ({ label: seller, value: seller }))}
+              />
+            </div>
           </Space>
         </div>
 
+        {/* Tablo */}
         <Spin spinning={loading} description="Rapor yükleniyor...">
           {filteredData.length > 0 ? (
             <Table
               columns={columns}
               dataSource={filteredData}
-              pagination={{
-                pageSize: 20,
-                total: filteredData.length,
-                showSizeChanger: true,
-                showTotal: (total) => `Toplam ${total} ürün`,
-              }}
-              scroll={{ x: 1400 }}
+              pagination={{ pageSize: 20, showSizeChanger: true }}
+              scroll={{ x: 1200 }}
               size="small"
             />
           ) : (
             <Empty description="Rapor bulunamadı" />
           )}
         </Spin>
-
-        <div className="reports-stats">
-          <div className="stat-item">
-            <span className="stat-label">Toplam Ürün:</span>
-            <span className="stat-value">{data.length}</span>
-          </div>
-          {data.length > 0 && (
-            <>
-              <div className="stat-item">
-                <span className="stat-label">Ortalama Fiyat:</span>
-                <span className="stat-value">
-                  ₺
-                  {(
-                    data.reduce((sum, item) => sum + (item["Son Fiyat (TL)"] || 0), 0) /
-                    data.length
-                  ).toFixed(2)}
-                </span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-label">Min Fiyat:</span>
-                <span className="stat-value">
-                  ₺
-                  {Math.min(
-                    ...data.map((item) => item["Son Fiyat (TL)"] || 0)
-                  ).toFixed(2)}
-                </span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-label">Max Fiyat:</span>
-                <span className="stat-value">
-                  ₺
-                  {Math.max(
-                    ...data.map((item) => item["Son Fiyat (TL)"] || 0)
-                  ).toFixed(2)}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
       </Card>
     </div>
   );

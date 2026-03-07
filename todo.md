@@ -69,4 +69,11 @@
 - [x] Home sayfasını kaldır veya Reports'a yönlendir
 - [x] Reports sayfasını basitle (sadece tablo, filtreleme, sıralama)
 - [x] Ant Design Table ile göster
-- [ ] Backend API'den doğru Excel dosyasını çek (Workflow debug gerekli)
+- [x] Backend API'den doğru Excel dosyasını çek (Workflow debug gerekli)
+
+## Phase 7: Fiyat Karşılaştırması ve Trend Analizi
+- [ ] En ucuz satıcıyı vurgula (best price highlight)
+- [ ] Ürün başına en düşük fiyatı göster
+- [ ] Trend analizi - zaman içinde fiyat değişimi (chart.js)
+- [ ] Gelişmiş filtreleme - ürün adı ve satıcı bazında
+- [ ] Filtreleme paneli ekle

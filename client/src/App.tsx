@@ -4,6 +4,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Reports from "@/pages/Reports";
+import TrendAnalysis from "@/pages/TrendAnalysis";
 import NotFound from "@/pages/NotFound";
 
 function App() {
@@ -13,8 +14,9 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Switch>
-            <Route path={"/"} component={Reports} />
+            <Route path={"/ "} component={Reports} />
             <Route path={"/reports"} component={Reports} />
+            <Route path={"/trend"} component={TrendAnalysis} />
             <Route component={NotFound} />
           </Switch>
         </TooltipProvider>
