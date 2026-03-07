@@ -242,7 +242,7 @@ export default function Reports() {
 
         {/* Kontrol Paneli */}
         <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
-          <Space direction="vertical" style={{ width: "100%" }}>
+          <Space orientation="vertical" style={{ width: "100%" }}>
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
               <Button 
                 type="primary" 
