@@ -73,3 +73,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Ürün Gruplaması - Alternatif Arkaplan Renkleri */
+.product-group-even {
+  background-color: #fafafa !important;
+}
+
+.product-group-odd {
+  background-color: #f0f8ff !important;
+}
+
+/* Tablo satırları için hafif arkaplan */
+.product-group-even td,
+.product-group-odd td {
+  background-color: inherit;
+}

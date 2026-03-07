@@ -128,6 +128,33 @@ export default function Reports() {
     maxPrice: data.length > 0 ? Math.max(...data.map((item) => item["Son Fiyat (TL)"] || 0)).toFixed(2) : 0,
   };
 
+  // Ürün grupları oluştur
+  const getProductGroups = () => {
+    const groups: { [key: string]: number } = {};
+    filteredData.forEach((item) => {
+      const productName = item["Ürün Adı"] || "";
+      groups[productName] = (groups[productName] || 0) + 1;
+    });
+    return groups;
+  };
+
+  const productGroups = getProductGroups();
+
+  // Satır arkaplan rengi belirle
+  const getRowClassName = (record: ReportData, index: number) => {
+    let groupIndex = 0;
+    let count = 0;
+    for (const [productName, groupSize] of Object.entries(productGroups)) {
+      if (record["Ürün Adı"] === productName) {
+        return groupIndex % 2 === 0 ? "product-group-even" : "product-group-odd";
+      }
+      count += groupSize;
+      if (count > index) break;
+      groupIndex++;
+    }
+    return "";
+  };
+
   // Tablo sütunları
   const columns = [
     {
@@ -286,6 +313,7 @@ export default function Reports() {
               pagination={{ pageSize: 20, showSizeChanger: true }}
               scroll={{ x: 1200 }}
               size="small"
+              rowClassName={(record, index) => getRowClassName(record, index || 0)}
             />
           ) : (
             <Empty description="Rapor bulunamadı" />
