@@ -86,8 +86,12 @@ export default function Reports() {
       title: "Ürün Adı",
       dataIndex: "Ürün Adı",
       key: "Ürün Adı",
-      width: 200,
-      render: (text: string) => <span className="truncate">{text}</span>,
+      width: 250,
+      render: (text: string) => (
+        <a href={data.find(d => d["Ürün Adı"] === text)?.["Ürün Linki"]} target="_blank" rel="noopener noreferrer">
+          {text}
+        </a>
+      ),
     },
     {
       title: "Satıcı",
@@ -99,7 +103,7 @@ export default function Reports() {
       title: "Orijinal Fiyat",
       dataIndex: "Orijinal Fiyat (TL)",
       key: "Orijinal Fiyat (TL)",
-      width: 120,
+      width: 130,
       sorter: (a: ReportData, b: ReportData) =>
         (a["Orijinal Fiyat (TL)"] || 0) - (b["Orijinal Fiyat (TL)"] || 0),
       render: (price: number) => `₺${price?.toFixed(2) || "0.00"}`,
@@ -108,7 +112,7 @@ export default function Reports() {
       title: "Son Fiyat",
       dataIndex: "Son Fiyat (TL)",
       key: "Son Fiyat (TL)",
-      width: 120,
+      width: 130,
       sorter: (a: ReportData, b: ReportData) =>
         (a["Son Fiyat (TL)"] || 0) - (b["Son Fiyat (TL)"] || 0),
       render: (price: number) => `₺${price?.toFixed(2) || "0.00"}`,
@@ -126,13 +130,19 @@ export default function Reports() {
       title: "Kupon",
       dataIndex: "Kupon İndirimi",
       key: "Kupon İndirimi",
-      width: 100,
+      width: 150,
     },
     {
       title: "Sepette",
       dataIndex: "Sepette İndirimi",
       key: "Sepette İndirimi",
-      width: 100,
+      width: 120,
+    },
+    {
+      title: "Notlar",
+      dataIndex: "Notlar",
+      key: "Notlar",
+      width: 150,
     },
   ];
 
@@ -170,7 +180,7 @@ export default function Reports() {
           </Space>
         </div>
 
-        <Spin spinning={loading} tip="Rapor yükleniyor...">
+        <Spin spinning={loading} description="Rapor yükleniyor...">
           {filteredData.length > 0 ? (
             <Table
               columns={columns}
@@ -181,7 +191,7 @@ export default function Reports() {
                 showSizeChanger: true,
                 showTotal: (total) => `Toplam ${total} ürün`,
               }}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 1400 }}
               size="small"
             />
           ) : (

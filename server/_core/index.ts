@@ -75,10 +75,34 @@ async function startServer() {
       // Import XLSX dynamically
       const XLSX = await import("xlsx");
       const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
-      // "Tarama Raporu" sheet'ini aç (ilk sheet)
       const sheetName = "Tarama Raporu";
       const worksheet = workbook.Sheets[sheetName] || workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+      
+      // 4. satırdan başlıkları oku
+      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+      const headers: string[] = [];
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_col(col) + "4";
+        const cell = worksheet[cellAddress];
+        headers.push(cell?.v?.toString() || "");
+      }
+      
+      // 5. satırdan veriyi oku
+      const data: any[] = [];
+      for (let row = 5; row <= range.e.r; row++) {
+        const rowData: any = {};
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const cellAddress = XLSX.utils.encode_col(col) + row;
+          const cell = worksheet[cellAddress];
+          const header = headers[col - range.s.c];
+          if (header) {
+            rowData[header] = cell?.v ?? "";
+          }
+        }
+        if (Object.values(rowData).some((v) => v !== "")) {
+          data.push(rowData);
+        }
+      }
 
       res.json({ data, releases });
     } catch (error) {
