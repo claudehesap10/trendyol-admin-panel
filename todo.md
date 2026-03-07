@@ -57,3 +57,16 @@
 - [ ] Rate limiting'i test et
 - [ ] Error recovery'yi test et
 - [ ] Performance optimization
+
+
+## Bug Fixes & Issues
+- [ ] Email raporu ile GitHub Releases raporu Excel içeriği farklı - senkronize et
+
+## Phase 6: Frontend Basitleştirme
+- [x] Gereksiz sayfaları kaldır (Settings, Workflow Control, Scan History)
+- [x] App.tsx'i basitle - sadece Reports route'u tut
+- [x] DashboardLayout'u kaldır - basit layout kullan
+- [x] Home sayfasını kaldır veya Reports'a yönlendir
+- [x] Reports sayfasını basitle (sadece tablo, filtreleme, sıralama)
+- [x] Ant Design Table ile göster
+- [ ] Backend API'den doğru Excel dosyasını çek (Workflow debug gerekli)

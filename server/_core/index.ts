@@ -75,8 +75,10 @@ async function startServer() {
       // Import XLSX dynamically
       const XLSX = await import("xlsx");
       const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(worksheet);
+      // "Tarama Raporu" sheet'ini aç (ilk sheet)
+      const sheetName = "Tarama Raporu";
+      const worksheet = workbook.Sheets[sheetName] || workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
       res.json({ data, releases });
     } catch (error) {
