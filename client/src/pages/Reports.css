@@ -88,3 +88,72 @@
 .product-group-odd td {
   background-color: inherit;
 }
+
+
+/* Mobile Responsive Tasarım */
+@media (max-width: 768px) {
+  .reports-container {
+    padding: 12px;
+  }
+
+  .reports-header h1 {
+    font-size: 18px;
+  }
+
+  .reports-controls {
+    padding: 12px;
+  }
+
+  /* Buttonlar tam genişlik */
+  .ant-button {
+    width: 100%;
+  }
+
+  /* Input ve Select tam genişlik */
+  .ant-input,
+  .ant-select {
+    width: 100% !important;
+  }
+
+  /* Tablo sütunlarını gizle - sadece önemli olanları göster */
+  .ant-table-column-title {
+    font-size: 12px;
+  }
+
+  .ant-table {
+    font-size: 12px;
+  }
+
+  /* Tablo hücrelerini küçült */
+  .ant-table td {
+    padding: 8px 4px !important;
+  }
+
+  /* Ürün adı sütununu daha dar yap */
+  .ant-table-cell {
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 480px) {
+  .reports-container {
+    padding: 8px;
+  }
+
+  .reports-header h1 {
+    font-size: 16px;
+  }
+
+  .ant-table {
+    font-size: 11px;
+  }
+
+  .ant-table td {
+    padding: 6px 2px !important;
+  }
+
+  /* Filtreleme alanında icon'u gizle */
+  .ant-input-prefix {
+    display: none;
+  }
+}

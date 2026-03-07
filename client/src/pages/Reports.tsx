@@ -243,7 +243,7 @@ export default function Reports() {
         {/* Kontrol Paneli */}
         <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
           <Space orientation="vertical" style={{ width: "100%" }}>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", flexDirection: "column" }} className="md:flex-row">
               <Button 
                 type="primary" 
                 icon={<ReloadOutlined />} 
@@ -268,20 +268,20 @@ export default function Reports() {
             </div>
 
             {/* Filtreleme */}
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "flex-start", flexDirection: "column" }}>
               <FilterOutlined />
               <Input
                 placeholder="Ürün adı veya satıcı ile ara..."
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                style={{ width: "250px" }}
+                style={{ width: "100%", minWidth: "200px" }}
               />
               <Select
                 placeholder="Ürün Adı Seç"
                 allowClear
                 value={selectedProduct || undefined}
                 onChange={setSelectedProduct}
-                style={{ width: "250px" }}
+                style={{ width: "100%", minWidth: "200px" }}
                 options={productNames.map((name) => ({ label: name, value: name }))}
               />
               <Select
@@ -289,7 +289,7 @@ export default function Reports() {
                 allowClear
                 value={selectedSeller || undefined}
                 onChange={setSelectedSeller}
-                style={{ width: "200px" }}
+                style={{ width: "100%", minWidth: "150px" }}
                 options={sellers.map((seller) => ({ label: seller, value: seller }))}
               />
             </div>
@@ -303,7 +303,7 @@ export default function Reports() {
               columns={columns}
               dataSource={filteredData}
               pagination={{ pageSize: 20, showSizeChanger: true }}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 'max-content' }}
               size="small"
               rowClassName={(record) => getRowClassName(record)}
             />
