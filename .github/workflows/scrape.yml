@@ -19,22 +19,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Python 3.11 kur
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Bağımlılıkları yükle
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install scrapling python-telegram-bot
 
       - name: Playwright tarayıcılarını kur
         run: |
           playwright install chromium
+          playwright install-deps chromium
 
       - name: Scraper'ı çalıştır
         env:
+          CI: 'true'  # Headless mode için
           TRENDYOL_STORE_URL: ${{ secrets.TRENDYOL_STORE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -48,8 +50,7 @@ jobs:
           OUTPUT_FOLDER: reports
           DEBUG_MODE: 'False'
         run: |
-          cd controller
-          python main_controller.py
+          python controller/main_controller.py
 
       - name: Dosyaları listele
         if: always()
@@ -59,7 +60,6 @@ jobs:
           echo ""
           echo "=== Tüm xlsx dosyaları ==="
           find . -name "*.xlsx" -type f 2>/dev/null || echo "xlsx dosyası bulunamadı"
-          
 
       - name: Raporları GitHub Releases'a yükle
         if: success()
@@ -78,12 +78,15 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trendyol-rapor-${{ github.run_number }}
-          path: reports/*.xlsx
+          path: controller/reports/*.xlsx
           retention-days: 30
 
       - name: Hata durumunda Telegram bildirimi
         if: failure()
         run: |
-          curl -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="❌ Trendyol scraper hatası! GitHub Actions #${{ github.run_number }} başarısız oldu."
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=❌ Trendyol scraper hatası! GitHub Actions #${{ github.run_number }} başarısız oldu. 
+
+          🔗 Log: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
