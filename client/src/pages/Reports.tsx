@@ -1,4 +1,3 @@
-"use client";
 import { useState, useEffect } from "react";
 import { Table, Button, Input, Space, Spin, Empty, message, Card, Select, Tag } from "antd";
 import { DownloadOutlined, ReloadOutlined, FilterOutlined } from "@ant-design/icons";
@@ -27,6 +26,25 @@ export default function Reports() {
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [selectedSeller, setSelectedSeller] = useState<string>("");
   const [lastScanTime, setLastScanTime] = useState<string>("");
+  const [screenSize, setScreenSize] = useState<'mobile' | 'tablet' | 'web'>('web');
+
+  // Ekran boyutunu takip et
+  useEffect(() => {
+    const handleResize = () => {
+      const width = window.innerWidth;
+      if (width < 768) {
+        setScreenSize('mobile');
+      } else if (width < 1024) {
+        setScreenSize('tablet');
+      } else {
+        setScreenSize('web');
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Backend'den rapor çek
   const fetchReport = async () => {
@@ -105,150 +123,141 @@ export default function Reports() {
     }
 
     setFilteredData(filtered);
-  }, [selectedProduct, selectedSeller, searchText, data]);
+  }, [data, selectedProduct, selectedSeller, searchText]);
 
-  // Excel indir
-  const downloadExcel = () => {
-    if (data.length === 0) {
-      message.warning("İndirilecek veri yok");
-      return;
-    }
+  // Ürün adlarını al
+  const productNames = Array.from(
+    new Set(data.map((item) => item["Ürün Adı"]))
+  ).filter(Boolean) as string[];
 
-    const exportData = data.map(({ key, isBestPrice, ...rest }) => rest);
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Rapor");
-    XLSX.writeFile(wb, "trendyol_rapor.xlsx");
-    message.success("Excel dosyası indirildi");
-  };
+  // Satıcıları al
+  const sellers = Array.from(
+    new Set(data.map((item) => item["Satıcı"]))
+  ).filter(Boolean) as string[];
 
-  // Ürün adı listesi
-  const productNames = Array.from(new Set(data.map((item) => item["Ürün Adı"]).filter(Boolean))) as string[];
-
-  // Satıcı listesi
-  const sellers = Array.from(new Set(data.map((item) => item["Satıcı"]).filter(Boolean))) as string[];
-
-  // Son tarama süresi
+  // Son tarama zamanını formatla
   const getLastScanTime = () => {
-    return lastScanTime || "Veri yüklenıyor...";
+    return lastScanTime || "Veri yükleniyor...";
   };
 
-  // Ürün grupları oluştur (tüm data üzerinde)
-  const getProductGroups = () => {
-    const groups: { [key: string]: number } = {};
-    data.forEach((item) => {
-      const productName = item["Ürün Adı"] || "";
-      groups[productName] = (groups[productName] || 0) + 1;
-    });
-    return groups;
-  };
-
-  const productGroups = getProductGroups();
-
-  // Satır arkaplan rengi belirle
+  // Ürün gruplaması için row className
   const getRowClassName = (record: ReportData) => {
     const productName = record["Ürün Adı"] || "";
-    const productNames = Array.from(new Set(data.map((item) => item["Ürün Adı"]).filter(Boolean))) as string[];
-    const groupIndex = productNames.indexOf(productName);
-    return groupIndex % 2 === 0 ? "product-group-even" : "product-group-odd";
+    const productIndex = productNames.indexOf(productName);
+    return productIndex % 2 === 0 ? "product-group-even" : "product-group-odd";
   };
 
-  // Tablo sütunları
-  const columns = [
-    {
-      title: "Ürün Adı",
-      dataIndex: "Ürün Adı",
-      key: "Ürün Adı",
-      width: 250,
-      render: (text: string, record: ReportData) => (
-        <div>
-          <a href={record["Ürün Linki"]} target="_blank" rel="noopener noreferrer">
+  // Excel'e indir
+  const downloadExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(filteredData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Raporlar");
+    XLSX.writeFile(wb, "trendyol-raporlari.xlsx");
+  };
+
+  // Responsive tablo sütunları
+  const getColumns = () => {
+    const baseColumns = [
+      {
+        title: "Ürün Adı",
+        dataIndex: "Ürün Adı",
+        key: "Ürün Adı",
+        width: screenSize === 'mobile' ? 120 : screenSize === 'tablet' ? 150 : 200,
+        render: (text: string) => (
+          <a href="#" className="truncate">
             {text}
           </a>
-          {record.isBestPrice && <Tag color="gold" style={{ marginLeft: 8 }}>En Ucuz</Tag>}
-        </div>
-      ),
-    },
-    {
-      title: "Satıcı",
-      dataIndex: "Satıcı",
-      key: "Satıcı",
-      width: 150,
-      sorter: (a: ReportData, b: ReportData) => (a["Satıcı"] || "").localeCompare(b["Satıcı"] || ""),
-    },
-    {
-      title: "Orijinal Fiyat",
-      dataIndex: "Orijinal Fiyat (TL)",
-      key: "Orijinal Fiyat (TL)",
-      width: 130,
-      render: (price: number) => `₺${price?.toFixed(2) || "N/A"}`,
-      sorter: (a: ReportData, b: ReportData) => (a["Orijinal Fiyat (TL)"] || 0) - (b["Orijinal Fiyat (TL)"] || 0),
-    },
-    {
-      title: "Son Fiyat",
-      dataIndex: "Son Fiyat (TL)",
-      key: "Son Fiyat (TL)",
-      width: 130,
-      render: (price: number, record: ReportData) => (
-        <span style={{ color: record.isBestPrice ? "#faad14" : "inherit", fontWeight: record.isBestPrice ? "bold" : "normal" }}>
-          ₺{price?.toFixed(2) || "N/A"}
-        </span>
-      ),
-      sorter: (a: ReportData, b: ReportData) => (a["Son Fiyat (TL)"] || 0) - (b["Son Fiyat (TL)"] || 0),
-    },
-    {
-      title: "Rating",
-      dataIndex: "Rating",
-      key: "Rating",
-      width: 100,
-      render: (rating: number) => (
-        <span>
-          {rating?.toFixed(1) || "N/A"} ⭐
-        </span>
-      ),
-      sorter: (a: ReportData, b: ReportData) => (a["Rating"] || 0) - (b["Rating"] || 0),
-    },
-    {
-      title: "Kupon",
-      dataIndex: "Kupon İndirimi",
-      key: "Kupon İndirimi",
-      width: 150,
-      render: (text: string) => text || "-",
-    },
-    {
-      title: "Sepette",
-      dataIndex: "Sepette İndirimi",
-      key: "Sepette İndirimi",
-      width: 150,
-      render: (text: string) => text || "-",
-    },
-  ];
+        ),
+      },
+      {
+        title: "Satıcı",
+        dataIndex: "Satıcı",
+        key: "Satıcı",
+        width: screenSize === 'mobile' ? 100 : screenSize === 'tablet' ? 120 : 150,
+      },
+      {
+        title: "Orijinal Fiyat",
+        dataIndex: "Orijinal Fiyat (TL)",
+        key: "Orijinal Fiyat (TL)",
+        width: screenSize === 'mobile' ? 80 : 100,
+         render: (price: number) => <span>₺{price?.toFixed(2) || "0"}</span>,
+      },
+      {
+        title: "Son Fiyat",
+        dataIndex: "Son Fiyat (TL)",
+        key: "Son Fiyat (TL)",
+        width: screenSize === 'mobile' ? 80 : 100,
+        render: (price: number, record: ReportData) => (
+          <span style={{ color: record.isBestPrice ? "#52c41a" : "inherit", fontWeight: record.isBestPrice ? "bold" : "normal" }}>
+            ₺{price?.toFixed(2) || "0"}
+          </span>
+        ),
+      },
+    ];
+
+    // Tablet ve web için ek sütunlar
+    if (screenSize !== 'mobile') {
+      baseColumns.push(
+        {
+          title: "Rating",
+          dataIndex: "Rating",
+          key: "Rating",
+          width: 80,
+          render: (rating: number) => <span>{rating} ⭐</span>,
+        },
+        {
+          title: "Kupon",
+          dataIndex: "Kupon İndirimi",
+          key: "Kupon İndirimi",
+          width: 120,
+          render: (text: string) => <span>{text || "-"}</span>,
+        }
+      );
+    }
+
+    // Web için tüm sütunlar
+    if (screenSize === 'web') {
+      baseColumns.push({
+        title: "Sepette İndirimi",
+        dataIndex: "Sepette İndirimi",
+        key: "Sepette İndirimi",
+        width: 150,
+        render: (text: string) => <span>{text || "-"}</span>,
+      });
+    }
+
+    return baseColumns;
+  };
 
   return (
-    <div style={{ padding: "20px" }}>
-      <Card>
-        <h1>📊 Trendyol Fiyat Raporları</h1>
-        <p>GitHub Releases'tan otomatik olarak güncellenen raporlar</p>
+    <div className="reports-wrapper">
+      <div className="reports-container">
+        <Card className="reports-card">
+          <div className="reports-header">
+            <h1>📊 Trendyol Fiyat Raporları</h1>
+            <p>GitHub Releases'tan otomatik olarak güncellenen raporlar</p>
+          </div>
 
-        {/* Son Tarama Süresi ve Ürün Sayısı */}
-        <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#e6f7ff", borderRadius: "8px", border: "1px solid #91d5ff" }}>
-          <p style={{ margin: 0, fontSize: "14px", color: "#0050b3", marginBottom: "8px" }}>
-            <strong>🔄 Son Tarama:</strong> {getLastScanTime()}
-          </p>
-          <p style={{ margin: 0, fontSize: "14px", color: "#0050b3" }}>
-            <strong>📦 Tarandı:</strong> {data.length} ürün
-          </p>
-        </div>
+          {/* Son Tarama Süresi ve Ürün Sayısı */}
+          <div className="scan-info-box">
+            <p className="scan-info-item">
+              <strong>🔄 Son Tarama:</strong> {getLastScanTime()}
+            </p>
+            <p className="scan-info-item">
+              <strong>📦 Tarandı:</strong> {data.length} ürün
+            </p>
+          </div>
 
-        {/* Kontrol Paneli */}
-        <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
-          <Space orientation="vertical" style={{ width: "100%" }}>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", flexDirection: "column" }} className="md:flex-row">
+          {/* Kontrol Paneli */}
+          <div className="controls-panel">
+            {/* Buttonlar */}
+            <div className="button-group">
               <Button 
                 type="primary" 
                 icon={<ReloadOutlined />} 
                 onClick={fetchReport}
                 loading={loading}
+                className="control-button"
               >
                 Yenile
               </Button>
@@ -256,32 +265,36 @@ export default function Reports() {
                 type="default" 
                 icon={<DownloadOutlined />} 
                 onClick={downloadExcel}
+                className="control-button"
               >
                 Excel İndir
               </Button>
               <Button 
                 type="default" 
                 onClick={() => window.location.href = "/trend"}
+                className="control-button"
               >
                 Trend Analizi
               </Button>
             </div>
 
             {/* Filtreleme */}
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "flex-start", flexDirection: "column" }}>
-              <FilterOutlined />
+            <div className="filter-group">
+              <div className="filter-label">
+                <FilterOutlined /> Filtrele
+              </div>
               <Input
                 placeholder="Ürün adı veya satıcı ile ara..."
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                style={{ width: "100%", minWidth: "200px" }}
+                className="filter-input"
               />
               <Select
                 placeholder="Ürün Adı Seç"
                 allowClear
                 value={selectedProduct || undefined}
                 onChange={setSelectedProduct}
-                style={{ width: "100%", minWidth: "200px" }}
+                className="filter-select"
                 options={productNames.map((name) => ({ label: name, value: name }))}
               />
               <Select
@@ -289,29 +302,32 @@ export default function Reports() {
                 allowClear
                 value={selectedSeller || undefined}
                 onChange={setSelectedSeller}
-                style={{ width: "100%", minWidth: "150px" }}
+                className="filter-select"
                 options={sellers.map((seller) => ({ label: seller, value: seller }))}
               />
             </div>
-          </Space>
-        </div>
+          </div>
 
-        {/* Tablo */}
-        <Spin spinning={loading} description="Rapor yükleniyor...">
-          {filteredData.length > 0 ? (
-            <Table
-              columns={columns}
-              dataSource={filteredData}
-              pagination={{ pageSize: 20, showSizeChanger: true }}
-              scroll={{ x: 'max-content' }}
-              size="small"
-              rowClassName={(record) => getRowClassName(record)}
-            />
-          ) : (
-            <Empty description="Rapor bulunamadı" />
-          )}
-        </Spin>
-      </Card>
+          {/* Tablo */}
+          <Spin spinning={loading} description="Rapor yükleniyor...">
+            {filteredData.length > 0 ? (
+              <Table
+                columns={getColumns()}
+                dataSource={filteredData}
+                pagination={{ 
+                  pageSize: screenSize === 'mobile' ? 10 : 20, 
+                  showSizeChanger: screenSize !== 'mobile' 
+                }}
+                scroll={{ x: 'max-content' }}
+                size={screenSize === 'mobile' ? 'small' : 'middle'}
+                rowClassName={(record) => getRowClassName(record)}
+              />
+            ) : (
+              <Empty description="Rapor bulunamadı" />
+            )}
+          </Spin>
+        </Card>
+      </div>
     </div>
   );
 }
