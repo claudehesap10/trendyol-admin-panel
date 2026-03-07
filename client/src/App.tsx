@@ -14,7 +14,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Switch>
-            <Route path={"/ "} component={Reports} />
+            <Route path={"/"} component={Reports} />
             <Route path={"/reports"} component={Reports} />
             <Route path={"/trend"} component={TrendAnalysis} />
             <Route component={NotFound} />
