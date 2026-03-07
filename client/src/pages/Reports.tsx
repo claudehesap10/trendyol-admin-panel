@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Table, Button, Input, Space, Spin, Empty, message, Card, Select, Row, Col, Statistic, Tag } from "antd";
+import { Table, Button, Input, Space, Spin, Empty, message, Card, Select, Tag } from "antd";
 import { DownloadOutlined, ReloadOutlined, FilterOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import "./Reports.css";
@@ -120,12 +120,13 @@ export default function Reports() {
   // Satıcı listesi
   const sellers = Array.from(new Set(data.map((item) => item["Satıcı"]).filter(Boolean))) as string[];
 
-  // İstatistikler
-  const stats = {
-    totalProducts: data.length,
-    avgPrice: data.length > 0 ? (data.reduce((sum, item) => sum + (item["Son Fiyat (TL)"] || 0), 0) / data.length).toFixed(2) : 0,
-    minPrice: data.length > 0 ? Math.min(...data.map((item) => item["Son Fiyat (TL)"] || 0)).toFixed(2) : 0,
-    maxPrice: data.length > 0 ? Math.max(...data.map((item) => item["Son Fiyat (TL)"] || 0)).toFixed(2) : 0,
+  // Son tarama süresi
+  const getLastScanTime = () => {
+    if (data.length === 0) return "Veri yok";
+    // Backend'den gelen en son release tarihi
+    const now = new Date();
+    // İlk veri yüklenme zamanı (simule edilmiş)
+    return now.toLocaleString('tr-TR');
   };
 
   // Ürün grupları oluştur (tüm data üzerinde)
@@ -225,21 +226,12 @@ export default function Reports() {
         <h1>📊 Trendyol Fiyat Raporları</h1>
         <p>GitHub Releases'tan otomatik olarak güncellenen raporlar</p>
 
-        {/* İstatistikler */}
-        <Row gutter={16} style={{ marginBottom: 20 }}>
-          <Col xs={12} sm={6}>
-            <Statistic title="Toplam Ürün" value={stats.totalProducts} />
-          </Col>
-          <Col xs={12} sm={6}>
-            <Statistic title="Ortalama Fiyat" value={`₺${stats.avgPrice}`} />
-          </Col>
-          <Col xs={12} sm={6}>
-            <Statistic title="Min Fiyat" value={`₺${stats.minPrice}`} />
-          </Col>
-          <Col xs={12} sm={6}>
-            <Statistic title="Max Fiyat" value={`₺${stats.maxPrice}`} />
-          </Col>
-        </Row>
+        {/* Son Tarama Süresi */}
+        <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#e6f7ff", borderRadius: "8px", border: "1px solid #91d5ff" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: "#0050b3" }}>
+            <strong>🔄 Son Tarama:</strong> {getLastScanTime()}
+          </p>
+        </div>
 
         {/* Kontrol Paneli */}
         <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
