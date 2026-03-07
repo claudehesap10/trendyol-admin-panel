@@ -230,10 +230,13 @@ export default function Reports() {
         <h1>📊 Trendyol Fiyat Raporları</h1>
         <p>GitHub Releases'tan otomatik olarak güncellenen raporlar</p>
 
-        {/* Son Tarama Süresi */}
+        {/* Son Tarama Süresi ve Ürün Sayısı */}
         <div style={{ marginBottom: 20, padding: "15px", backgroundColor: "#e6f7ff", borderRadius: "8px", border: "1px solid #91d5ff" }}>
-          <p style={{ margin: 0, fontSize: "14px", color: "#0050b3" }}>
+          <p style={{ margin: 0, fontSize: "14px", color: "#0050b3", marginBottom: "8px" }}>
             <strong>🔄 Son Tarama:</strong> {getLastScanTime()}
+          </p>
+          <p style={{ margin: 0, fontSize: "14px", color: "#0050b3" }}>
+            <strong>📦 Tarandı:</strong> {data.length} ürün
           </p>
         </div>
 
