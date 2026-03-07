@@ -38,93 +38,92 @@ class TrendyolScraper:
             return False
     
     def fetch_products(self) -> List[Dict]:
-        """Mağaza sayfasından ürünleri çek - sayfa sayfa navigate"""
+        """Mağaza sayfasından ürünleri çek - scroll ile"""
         try:
             from playwright.sync_api import sync_playwright
-            
+
             all_products = []
             seen_ids = set()
-            page_num = 1
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
-                
+
                 page.set_extra_http_headers({
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                 })
 
-                while True:
-                    url = (
-                        f"{self.store_url}&pi={page_num}"
-                        if '?' in self.store_url
-                        else f"{self.store_url}?pi={page_num}"
-                    )
+                logger.info(f"🌐 Sayfa yükleniyor: {self.store_url}")
+                page.goto(self.store_url, wait_until='domcontentloaded', timeout=60000)
+                time.sleep(3)
 
-                    logger.info(f"📄 Sayfa {page_num} yükleniyor: {url}")
-                    page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                    time.sleep(3)
+                consecutive_empty = 0
+                max_empty = 3  # 3 kez üst üste yeni ürün gelmezse dur
 
-                    # Ürün linklerini bul
-                    product_elements = page.query_selector_all('a[href*="boutiqueId"], a[href*="merchantId"], a[href*="-p-"]')
-                    logger.info(f"  🔍 {len(product_elements)} element bulundu")
+                while consecutive_empty < max_empty:
+                    # Mevcut ürünleri topla
+                    product_elements = page.query_selector_all('a[href*="-p-"]')
 
-                    if not product_elements:
-                        logger.info(f"✅ Sayfa {page_num}'de ürün yok, tamamlandı")
-                        break
-
-                    page_products = []
+                    new_count = 0
                     for elem in product_elements:
                         try:
                             href = elem.get_attribute('href')
-                            text = elem.text_content()
-
-                            if not href or not text:
+                            if not href or '-p-' not in href:
                                 continue
 
                             if href.startswith('/'):
                                 href = 'https://www.trendyol.com' + href
-                            elif not href.startswith('http'):
-                                href = 'https://www.trendyol.com/' + href
 
-                            product_id = re.search(r'-p-(\d+)', href)
-                            product_id = product_id.group(1) if product_id else href.split('?')[0].split('/')[-1]
+                            product_id_match = re.search(r'-p-(\d+)', href)
+                            if not product_id_match:
+                                continue
+                            product_id = product_id_match.group(1)
 
-                            if product_id and product_id not in seen_ids:
-                                product_name = text.strip()
-                                product_name = (product_name
-                                    .replace('Hızlı Bakış', '')
-                                    .replace('Yetkili Satıcı', '')
-                                    .replace('Başarılı Satıcı', '')
-                                    .strip())
+                            if product_id in seen_ids:
+                                continue
 
-                                if product_name and len(product_name) > 3:
-                                    page_products.append({
-                                        'id': product_id,
-                                        'name': product_name,
-                                        'url': href
-                                    })
-                                    seen_ids.add(product_id)
+                            # Ürün adını çek
+                            name_elem = elem.query_selector(
+                                'span[class*="name"], div[class*="name"], '
+                                'span[class*="title"], div[class*="title"], h3'
+                            )
+                            if name_elem:
+                                product_name = name_elem.text_content().strip()
+                            else:
+                                product_name = elem.text_content().strip().split('\n')[0].strip()[:100]
+
+                            for noise in ['Hızlı Bakış', 'Yetkili Satıcı', 'Başarılı Satıcı', 'Sepete Ekle']:
+                                product_name = product_name.replace(noise, '').strip()
+
+                            if product_name and len(product_name) > 3:
+                                all_products.append({
+                                    'id': product_id,
+                                    'name': product_name,
+                                    'url': href
+                                })
+                                seen_ids.add(product_id)
+                                new_count += 1
 
                         except Exception as e:
                             logger.warning(f"⚠️ Ürün parse hatası: {e}")
                             continue
 
-                    if not page_products:
-                        logger.info(f"✅ Sayfa {page_num}'de yeni ürün yok, tamamlandı")
-                        break
+                    if new_count > 0:
+                        logger.info(f"  ✅ {new_count} yeni ürün (toplam: {len(all_products)})")
+                        consecutive_empty = 0
+                    else:
+                        consecutive_empty += 1
+                        logger.info(f"  ⏳ Yeni ürün yok ({consecutive_empty}/{max_empty})")
 
-                    all_products.extend(page_products)
-                    logger.info(f"  ✅ {len(page_products)} yeni ürün (toplam: {len(all_products)})")
+                    # Sayfanın sonuna scroll et
+                    page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                    time.sleep(2)
 
-                    # Sonraki sayfa var mı kontrol et
-                    next_button = page.query_selector('a[title="Sonraki Sayfa"], li.pagination-next a, [class*="pagination"] a[rel="next"]')
-                    if not next_button:
-                        logger.info(f"✅ Son sayfaya ulaşıldı (sayfa {page_num})")
-                        break
-
-                    page_num += 1
-                    time.sleep(1)
+                    # URL'deki pi değerini kontrol et
+                    current_url = page.url
+                    pi_match = re.search(r'pi=(\d+)', current_url)
+                    current_pi = int(pi_match.group(1)) if pi_match else 1
+                    logger.info(f"  📄 Mevcut sayfa: pi={current_pi}, toplam: {len(all_products)}")
 
                 browser.close()
 
@@ -134,6 +133,7 @@ class TrendyolScraper:
         except Exception as e:
             logger.error(f"❌ Ürün çekme hatası: {e}")
             return []
+
     def fetch_sellers_for_product(self, product_url: str, product_name: str = "") -> List[Dict]:
         """Bir ürün için tüm satıcıları çek - "Ürüne Git" butonlarına tıklayarak"""
         try:
