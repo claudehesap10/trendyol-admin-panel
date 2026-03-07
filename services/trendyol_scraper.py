@@ -1,10 +1,9 @@
 """
-Trendyol Scraper Servisi - Playwright cookie + API hibrit yaklaşım
+Trendyol Scraper Servisi - Playwright intercept yaklaşımı
 """
 import logging
 import re
 import time
-import requests
 from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -17,21 +16,6 @@ class TrendyolScraper:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.merchant_id = self._extract_merchant_id(store_url)
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': f'https://www.trendyol.com/sr?mid={self.merchant_id}&os=1',
-            'Origin': 'https://www.trendyol.com',
-            'Connection': 'keep-alive',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-        }
 
     def _extract_merchant_id(self, url: str) -> Optional[str]:
         """URL'den merchantId çıkar"""
@@ -52,41 +36,11 @@ class TrendyolScraper:
         logger.info(f"✅ Scraper başlatıldı - Merchant ID: {self.merchant_id}")
         return True
 
-    def _get_cookies_from_browser(self) -> Optional[str]:
-        """Playwright ile siteyi açıp cookie al"""
-        try:
-            from playwright.sync_api import sync_playwright
-
-            logger.info("🌐 Browser ile cookie alınıyor...")
-
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                )
-                page = context.new_page()
-
-                page.goto(self.store_url, wait_until='networkidle', timeout=60000)
-                time.sleep(3)
-
-                cookies = context.cookies()
-                cookie_str = '; '.join([f"{c['name']}={c['value']}" for c in cookies])
-
-                browser.close()
-
-                logger.info(f"✅ {len(cookies)} cookie alındı")
-                return cookie_str
-
-        except Exception as e:
-            logger.error(f"❌ Cookie alma hatası: {e}")
-            return None
-
     def _parse_product(self, p: dict) -> dict:
         """Ham API verisini temiz dict'e çevir"""
         product_url = p.get('url', '')
         if product_url.startswith('/'):
             product_url = 'https://www.trendyol.com' + product_url
-
         price_data = p.get('price', {})
         return {
             'id': str(p.get('id', '')),
@@ -101,77 +55,110 @@ class TrendyolScraper:
         }
 
     def fetch_products(self) -> List[Dict]:
-        """Trendyol API'sini sayfalayarak tüm ürünleri çek"""
+        """Playwright ile API response'larını intercept ederek tüm ürünleri çek"""
         if not self.merchant_id:
-            logger.error("❌ merchantId yok, ürünler çekilemiyor")
+            logger.error("❌ merchantId yok")
             return []
 
-        # Cookie al
-        cookie_str = self._get_cookies_from_browser()
-        if cookie_str:
-            self.headers['Cookie'] = cookie_str
+        from playwright.sync_api import sync_playwright
 
         all_products = []
-        page_num = 1
 
-        logger.info(f"🔍 Ürünler çekiliyor - Merchant: {self.merchant_id}")
-
-        while True:
-            url = (
-                f"https://apigw.trendyol.com/discovery-sfint-search-service/api/search/products/"
-                f"?mid={self.merchant_id}&os=1&pi={page_num}&pathModel=sr"
-                f"&channelId=1&culture=tr-TR&pageSize=24"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
+            page = context.new_page()
 
-            success = False
-            for attempt in range(self.max_retries):
-                try:
-                    response = requests.get(url, headers=self.headers, timeout=30)
-                    response.raise_for_status()
-                    data = response.json()
+            api_responses = []
 
-                    products = data.get('products', [])
-                    if not products:
-                        logger.info(f"✅ Tüm ürünler çekildi. Toplam: {len(all_products)}")
-                        return all_products
+            def handle_response(response):
+                if 'search/products' in response.url and response.status == 200:
+                    try:
+                        data = response.json()
+                        if data.get('products'):
+                            api_responses.append({'url': response.url, 'data': data})
+                            logger.info(f"🎯 API yakalandı: {len(data['products'])} ürün")
+                    except:
+                        pass
 
-                    for p_data in products:
-                        all_products.append(self._parse_product(p_data))
+            page.on("response", handle_response)
 
-                    total = data.get('total', '?')
-                    logger.info(f"📦 Sayfa {page_num}: {len(products)} ürün (toplam: {len(all_products)}/{total})")
+            # İlk sayfayı yükle
+            logger.info("🌐 İlk sayfa yükleniyor...")
+            page.goto(self.store_url, wait_until='networkidle', timeout=60000)
+            time.sleep(3)
 
-                    if not data.get('_links', {}).get('next'):
-                        logger.info(f"✅ Son sayfaya ulaşıldı. Toplam: {len(all_products)}")
-                        return all_products
+            if not api_responses:
+                logger.error("❌ Hiç API response yakalanamadı")
+                browser.close()
+                return []
 
-                    success = True
+            first_data = api_responses[0]['data']
+            total = first_data.get('total', 0)
+            logger.info(f"📦 Toplam ürün sayısı: {total}")
+
+            for p_data in first_data.get('products', []):
+                all_products.append(self._parse_product(p_data))
+
+            logger.info(f"📦 Sayfa 1: {len(all_products)}/{total}")
+
+            # Kalan sayfaları gez
+            page_num = 2
+            while len(all_products) < total:
+                api_responses.clear()
+
+                next_url = (
+                    f"{self.store_url}&pi={page_num}"
+                    if '?' in self.store_url
+                    else f"{self.store_url}?pi={page_num}"
+                )
+
+                logger.info(f"📄 Sayfa {page_num} yükleniyor...")
+
+                success = False
+                for attempt in range(self.max_retries):
+                    try:
+                        page.goto(next_url, wait_until='networkidle', timeout=60000)
+                        time.sleep(2)
+
+                        if api_responses:
+                            success = True
+                            break
+                        else:
+                            logger.warning(f"⚠️ Sayfa {page_num}, deneme {attempt+1}/{self.max_retries}: Response yakalanamadı")
+                            time.sleep(self.retry_delay)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Sayfa {page_num}, deneme {attempt+1}/{self.max_retries}: {e}")
+                        time.sleep(self.retry_delay)
+
+                if not success:
+                    logger.error(f"❌ Sayfa {page_num} {self.max_retries} denemede çekilemedi, duruyorum")
                     break
 
-                except requests.exceptions.HTTPError as e:
-                    if e.response.status_code == 403:
-                        logger.warning(f"⚠️ 403 hatası, cookie yenileniyor...")
-                        cookie_str = self._get_cookies_from_browser()
-                        if cookie_str:
-                            self.headers['Cookie'] = cookie_str
-                    else:
-                        logger.warning(f"⚠️ Sayfa {page_num}, deneme {attempt+1}/{self.max_retries}: {e}")
+                page_data = api_responses[0]['data']
+                products = page_data.get('products', [])
 
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
+                if not products:
+                    logger.info("✅ Ürün kalmadı, tamamlandı")
+                    break
 
-                except Exception as e:
-                    logger.warning(f"⚠️ Sayfa {page_num}, deneme {attempt+1}/{self.max_retries}: {e}")
-                    if attempt < self.max_retries - 1:
-                        time.sleep(self.retry_delay)
+                for p_data in products:
+                    all_products.append(self._parse_product(p_data))
 
-            if not success:
-                logger.error(f"❌ Sayfa {page_num} {self.max_retries} denemede çekilemedi, duruyorum")
-                break
+                logger.info(f"📦 Sayfa {page_num}: {len(products)} ürün (toplam: {len(all_products)}/{total})")
 
-            page_num += 1
-            time.sleep(0.5)
+                if not page_data.get('_links', {}).get('next'):
+                    logger.info("✅ Son sayfaya ulaşıldı")
+                    break
 
+                page_num += 1
+                time.sleep(1)
+
+            browser.close()
+
+        logger.info(f"✅ Toplam {len(all_products)} ürün çekildi")
         return all_products
 
     def fetch_sellers_for_product(self, product_url: str, product_name: str = "") -> List[Dict]:
