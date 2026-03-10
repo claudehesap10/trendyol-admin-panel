@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { Card, Spin, Empty, message, Row, Col, Select, Button, Table, Tag, Space, Statistic } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Line, Bar } from "react-chartjs-2";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -39,7 +39,7 @@ export default function TrendAnalysis() {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [productNames, setProductNames] = useState<string[]>([]);
-  const [navigate] = useNavigate();
+  const [, setLocation] = useLocation();
 
   // Backend'den rapor çek
   const fetchReport = async () => {
@@ -271,7 +271,7 @@ export default function TrendAnalysis() {
       <Button 
         type="primary" 
         icon={<ArrowLeftOutlined />} 
-        onClick={() => navigate("/reports")}
+        onClick={() => setLocation("/reports")}
         style={{ marginBottom: "20px" }}
       >
         Raporlara Dön
