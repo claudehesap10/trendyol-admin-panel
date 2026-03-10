@@ -18,6 +18,7 @@ class Config:
         "https://www.trendyol.com/sr?mid=1126746&os=1"
     )
     MY_MERCHANT_ID: str = os.getenv("MY_MERCHANT_ID", "1126746") # Kendi mağazanızın Trendyol Merchant ID'si
+    MY_MERCHANT_NAME: str = os.getenv("MY_MERCHANT_NAME", "Esvento") # Kendi mağazanızın Trendyol'daki adı (ör: "FIRMANIZ A.Ş.")
     
     # Telegram Ayarları
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -55,6 +56,7 @@ class Config:
             ("TELEGRAM_BOT_TOKEN", cls.TELEGRAM_BOT_TOKEN),
             ("TELEGRAM_CHAT_ID", cls.TELEGRAM_CHAT_ID),
             ("MY_MERCHANT_ID", cls.MY_MERCHANT_ID),
+            ("MY_MERCHANT_NAME", cls.MY_MERCHANT_NAME),
         ]
         
         missing = [name for name, value in required_fields if not value]
@@ -75,6 +77,7 @@ class Config:
         print(f"📱 Telegram Token: {cls.TELEGRAM_BOT_TOKEN[:10]}...***")
         print(f"💬 Telegram Chat ID: {cls.TELEGRAM_CHAT_ID}")
         print(f"🏪 Kendi Mağaza ID: {cls.MY_MERCHANT_ID}")
+        print(f"🏪 Kendi Mağaza Adı: {cls.MY_MERCHANT_NAME}")
         print(f"⏱️  Tarama Timeout: {cls.SCAN_TIMEOUT}s")
         print(f"🔄 Max Retries: {cls.MAX_RETRIES}")
         print(f"📁 Çıktı Klasörü: {cls.OUTPUT_DIR}")
