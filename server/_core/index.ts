@@ -39,12 +39,19 @@ async function startServer() {
   // Reports API endpoint
   app.get("/api/reports/latest", async (req, res) => {
     try {
+      const githubToken = process.env.GITHUB_TOKEN;
+      const headers: Record<string, string> = {
+        Accept: "application/vnd.github.v3+json",
+      };
+
+      if (githubToken) {
+        headers["Authorization"] = `token ${githubToken}`;
+      }
+
       const response = await fetch(
         "https://api.github.com/repos/claudehesap10/trendyol-admin-panel/releases",
         {
-          headers: {
-            Accept: "application/vnd.github.v3+json",
-          },
+          headers,
         }
       );
 
