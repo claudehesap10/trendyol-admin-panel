@@ -29,6 +29,11 @@ class Config:
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     RECIPIENT_EMAIL: str = os.getenv("RECIPIENT_EMAIL", "")
     
+    # ByBox Fiyat Takibi Ayarları
+    MY_MERCHANT_NAME: str = os.getenv("MY_MERCHANT_NAME", "Esvento")  # Kendi mağaza isminiz
+    ENABLE_PRICE_ALERTS: bool = os.getenv("ENABLE_PRICE_ALERTS", "true").lower() == "true"
+    PRICE_ALERT_THRESHOLD: float = float(os.getenv("PRICE_ALERT_THRESHOLD", "0.01"))  # Minimum fiyat farkı (TL)
+    
     # GitHub Ayarları
     GITHUB_TOKEN: Optional[str] = os.getenv("GITHUB_TOKEN")
     GITHUB_REPO: Optional[str] = os.getenv("GITHUB_REPO")

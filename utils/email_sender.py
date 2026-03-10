@@ -101,3 +101,47 @@ Trendyol Scraper Bot
         except Exception as e:
             logger.error(f"❌ Email gönderme hatası: {e}")
             return False
+    
+    def send_html_email(self, subject: str, html_body: str, attachment_path: str = None) -> bool:
+        """HTML formatında email gönder"""
+        try:
+            if not all([self.sender_email, self.sender_password, self.recipient_email]):
+                logger.warning("⚠️ Email konfigürasyonu eksik")
+                return False
+            
+            # Email oluştur
+            msg = MIMEMultipart('alternative')
+            msg['From'] = self.sender_email
+            msg['To'] = self.recipient_email
+            msg['Date'] = formatdate(localtime=True)
+            msg['Subject'] = subject
+            
+            # HTML içeriği ekle
+            html_part = MIMEText(html_body, 'html', 'utf-8')
+            msg.attach(html_part)
+            
+            # Ek varsa ekle
+            if attachment_path and Path(attachment_path).exists():
+                attachment = MIMEBase('application', 'octet-stream')
+                with open(attachment_path, 'rb') as attachment_file:
+                    attachment.set_payload(attachment_file.read())
+                
+                encoders.encode_base64(attachment)
+                attachment.add_header(
+                    'Content-Disposition',
+                    f'attachment; filename= {Path(attachment_path).name}',
+                )
+                msg.attach(attachment)
+            
+            # Email gönder
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+            
+            logger.info(f"✅ HTML Email gönderildi: {self.recipient_email}")
+            return True
+        
+        except Exception as e:
+            logger.error(f"❌ HTML Email gönderme hatası: {e}")
+            return False

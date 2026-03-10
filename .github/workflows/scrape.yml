@@ -51,6 +51,9 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           SCAN_TIMEOUT: ${{ secrets.SCAN_TIMEOUT }}
           MAX_RETRIES: ${{ secrets.MAX_RETRIES }}
+          MY_MERCHANT_NAME: ${{ secrets.MY_MERCHANT_NAME }}
+          ENABLE_PRICE_ALERTS: ${{ secrets.ENABLE_PRICE_ALERTS }}
+          PRICE_ALERT_THRESHOLD: ${{ secrets.PRICE_ALERT_THRESHOLD }}
           OUTPUT_FOLDER: reports
           DEBUG_MODE: 'False'
         run: |
