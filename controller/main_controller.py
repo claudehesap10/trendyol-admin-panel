@@ -172,46 +172,64 @@ class MainController:
 
     def _check_buy_box_and_notify(self, product: dict) -> None:
         """Bir ürün için Buy Box durumunu kontrol eder ve bildirim gönderir."""
-        my_merchant_id = self.config.MY_MERCHANT_ID
+        my_merchant_name = self.config.MY_MERCHANT_NAME
         product_name = product.get("name", "Bilinmeyen Ürün")
         product_url = product.get("url", "#")
         sellers = product.get("sellers", [])
 
-        if not my_merchant_id:
-            logger.warning("⚠️ Kendi mağaza ID'si tanımlanmamış, Buy Box kontrolü atlanıyor.")
+        if not my_merchant_name:
+            logger.warning("⚠️ Kendi mağaza adı tanımlanmamış, Buy Box kontrolü atlanıyor.")
             return
 
         my_seller_info = None
         cheaper_competitors = []
 
+        # Kendi satıcı bilgimizi bul (satıcı adıyla)
         for seller in sellers:
-            if seller.get("id") == my_merchant_id:
+            seller_name = seller.get("name", "").strip()
+            # Esnek karşılaştırma: büyük/küçük harf duyarsız ve kısmi eşleşme
+            if seller_name and my_merchant_name.lower() in seller_name.lower():
                 my_seller_info = seller
-            else:
-                cheaper_competitors.append(seller)
+                break
         
         # Kendi fiyatımızı bulduktan sonra rakipleri filtrele
-        if my_seller_info and my_seller_info.get("price"):
-            my_price = my_seller_info["price"]
+        if my_seller_info:
+            # net_price varsa onu kullan, yoksa price kullan
+            my_price = my_seller_info.get("net_price") or my_seller_info.get("price", 0)
+            
+            if my_price == 0:
+                logger.warning(f"⚠️ {product_name}: Kendi fiyat bilgim bulunamadı")
+                return
             
             # Sadece bizden daha ucuz olan rakipleri al
-            cheaper_competitors = [s for s in cheaper_competitors if s.get("price") < my_price]
+            for seller in sellers:
+                if seller.get("name") == my_seller_info.get("name"):
+                    continue  # Kendimizi atla
+                
+                competitor_price = seller.get("net_price") or seller.get("price", 0)
+                if competitor_price > 0 and competitor_price < my_price:
+                    cheaper_competitors.append(seller)
             
             # En ucuz rakibi bul
             if cheaper_competitors:
-                cheapest_competitor = min(cheaper_competitors, key=lambda x: x.get("price"))
-                price_difference = my_price - cheapest_competitor["price"]
+                # net_price veya price'a göre sırala
+                cheapest_competitor = min(
+                    cheaper_competitors, 
+                    key=lambda x: x.get("net_price") or x.get("price", float('inf'))
+                )
+                competitor_price = cheapest_competitor.get("net_price") or cheapest_competitor.get("price", 0)
+                price_difference = my_price - competitor_price
 
                 logger.info(f"🚨 Buy Box Uyarısı: {product_name} ürününde daha ucuz rakip bulundu!")
                 logger.info(f"   Kendi Fiyatım: {my_price:.2f} TL")
-                logger.info(f"   Rakip: {cheapest_competitor['name']} - {cheapest_competitor['price']:.2f} TL (Fark: {price_difference:.2f} TL)")
+                logger.info(f"   Rakip: {cheapest_competitor['name']} - {competitor_price:.2f} TL (Fark: {price_difference:.2f} TL)")
 
                 if self.telegram:
                     self.telegram.send_buy_box_notification(
                         product_name,
                         product_url,
                         cheapest_competitor["name"],
-                        cheapest_competitor["price"],
+                        competitor_price,
                         my_price,
                         price_difference
                     )
@@ -220,12 +238,16 @@ class MainController:
                         product_name,
                         product_url,
                         cheapest_competitor["name"],
-                        cheapest_competitor["price"],
+                        competitor_price,
                         my_price,
                         price_difference
                     )
-        elif not my_seller_info:
+            else:
+                logger.info(f"✅ {product_name}: Sizin fiyatınız en uygun ({my_price:.2f} TL)")
+        else:
             logger.info(f"ℹ️ {product_name} ürünü için kendi mağaza bilgilerim bulunamadı. Buy Box kontrolü yapılamadı.")
+            logger.debug(f"   Aranan mağaza: '{my_merchant_name}'")
+            logger.debug(f"   Bulunan satıcılar: {[s.get('name') for s in sellers]}")
 
     def _send_success_notification(self) -> None:
         """Başarı bildirimi gönder"""
