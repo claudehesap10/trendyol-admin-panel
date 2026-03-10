@@ -40,18 +40,18 @@ async function startServer() {
   app.get("/api/reports/latest", async (req, res) => {
     try {
       const githubToken = process.env.GITHUB_TOKEN;
-      const headers: Record<string, string> = {
+      const githubHeaders: Record<string, string> = {
         Accept: "application/vnd.github.v3+json",
       };
 
       if (githubToken) {
-        headers["Authorization"] = `token ${githubToken}`;
+        githubHeaders["Authorization"] = `token ${githubToken}`;
       }
 
       const response = await fetch(
         "https://api.github.com/repos/claudehesap10/trendyol-admin-panel/releases",
         {
-          headers,
+          headers: githubHeaders,
         }
       );
 
