@@ -244,7 +244,10 @@ export default function Reports() {
               <strong>🔄 Son Tarama:</strong> {getLastScanTime()}
             </p>
             <p className="scan-info-item">
-              <strong>📦 Tarandı:</strong> {data.length} ürün
+              <strong>📦 Benzersiz Ürün:</strong> {new Set(data.map(item => item["Ürün Adı"])).size} ürün
+            </p>
+            <p className="scan-info-item">
+              <strong>🏪 Toplam Satıcı:</strong> {data.length} kayıt
             </p>
           </div>
 

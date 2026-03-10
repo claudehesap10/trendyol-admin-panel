@@ -140,7 +140,7 @@ class MainController:
                 logger.warning("⚠️ Hiçbir ürün çekilemedi")
                 return False
             
-            logger.info(f"📦 {len(products)} ürün çekildi")
+            logger.info(f"📦 {len(products)} benzersiz ürün çekildi")
             
             # Her ürün için satıcıları çek
             products_with_sellers = []
@@ -151,13 +151,21 @@ class MainController:
                 products_with_sellers.append(product)
                 logger.info(f"  ✓ {len(sellers)} satıcı bulundu")
             
+            # Toplam istatistikler
+            total_sellers = sum(len(p.get('sellers', [])) for p in products_with_sellers)
+            logger.info("=" * 60)
+            logger.info("📊 TARAMA ÖZETİ:")
+            logger.info(f"   📦 Benzersiz Ürün: {len(products)}")
+            logger.info(f"   🏪 Toplam Satıcı Kaydı: {total_sellers}")
+            logger.info(f"   📈 Ortalama Satıcı/Ürün: {total_sellers/len(products):.1f}")
+            logger.info("=" * 60)
+            
             # Excel raporu oluştur
             report_path = self.excel_gen.generate_report(products_with_sellers)
             
             # Raporu Telegram'a gönder (ZORUNLU)
             if self.telegram:
                 scan_time = self._get_elapsed_time()
-                total_sellers = sum(len(p.get('sellers', [])) for p in products_with_sellers)
                 
                 if not self.telegram.send_scan_report(report_path, total_sellers, scan_time):
                     logger.error("❌ Telegram'a rapor gönderilemedi!")
