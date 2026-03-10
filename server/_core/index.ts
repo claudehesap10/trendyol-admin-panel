@@ -44,6 +44,7 @@ async function startServer() {
         {
           headers: {
             Accept: "application/vnd.github.v3+json",
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
           },
         }
       );
