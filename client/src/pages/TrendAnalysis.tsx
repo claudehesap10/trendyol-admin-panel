@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Card, Spin, Empty, message, Row, Col, Select } from "antd";
+import { Card, Spin, Empty, message, Row, Col, Select, Button, Table, Tag, Space, Statistic } from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
 import { Line, Bar } from "react-chartjs-2";
+import { useNavigate } from "wouter";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,6 +39,7 @@ export default function TrendAnalysis() {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [productNames, setProductNames] = useState<string[]>([]);
+  const [navigate] = useNavigate();
 
   // Backend'den rapor çek
   const fetchReport = async () => {
@@ -78,27 +81,39 @@ export default function TrendAnalysis() {
 
     // Satıcılar bazında fiyatları grupla
     const sellerPrices: { [key: string]: number } = {};
+    const sellerRatings: { [key: string]: number } = {};
+    
     productData.forEach((item) => {
       const seller = item["Satıcı"] || "Bilinmiyor";
       const price = item["Son Fiyat (TL)"] || 0;
+      const rating = item["Rating"] || 0;
+      
       if (!sellerPrices[seller] || price < sellerPrices[seller]) {
         sellerPrices[seller] = price;
       }
+      sellerRatings[seller] = rating;
     });
+
+    const prices = sellers.map((seller) => sellerPrices[seller] || 0);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
 
     return {
       sellers,
-      prices: sellers.map((seller) => sellerPrices[seller] || 0),
-      ratings: sellers.map((seller) => {
-        const item = productData.find((d) => d["Satıcı"] === seller);
-        return item?.["Rating"] || 0;
-      }),
+      prices,
+      ratings: sellers.map((seller) => sellerRatings[seller] || 0),
+      minPrice,
+      maxPrice,
+      avgPrice,
+      sellerPrices,
+      sellerRatings,
     };
   };
 
   const productData = getProductData();
 
-  // Fiyat karşılaştırması chart'ı
+  // Fiyat karşılaştırması chart'ı - dinamik ölçeklendirme
   const priceChartData = productData
     ? {
         labels: productData.sellers,
@@ -106,9 +121,13 @@ export default function TrendAnalysis() {
           {
             label: "Fiyat (TL)",
             data: productData.prices,
-            backgroundColor: "rgba(75, 192, 192, 0.6)",
-            borderColor: "rgba(75, 192, 192, 1)",
-            borderWidth: 1,
+            backgroundColor: productData.sellers.map((seller) => 
+              seller === "1126746" ? "rgba(255, 193, 7, 0.8)" : "rgba(75, 192, 192, 0.6)"
+            ),
+            borderColor: productData.sellers.map((seller) => 
+              seller === "1126746" ? "rgba(255, 193, 7, 1)" : "rgba(75, 192, 192, 1)"
+            ),
+            borderWidth: 2,
           },
         ],
       }
@@ -132,54 +151,210 @@ export default function TrendAnalysis() {
       }
     : null;
 
-  const chartOptions = {
+  // Dinamik Y eksenini hesapla (fiyat farkları küçükse daha iyi görünüm için)
+  const getPriceChartOptions = () => {
+    if (!productData) return {};
+    
+    const padding = (productData.maxPrice - productData.minPrice) * 0.1;
+    const min = Math.max(0, productData.minPrice - padding);
+    const max = productData.maxPrice + padding;
+
+    return {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: "top" as const,
+        },
+        title: {
+          display: false,
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context: any) {
+              return `${context.parsed.y.toFixed(2)} TL`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          min: min,
+          max: max,
+          ticks: {
+            callback: function(value: any) {
+              return `${value.toFixed(2)} TL`;
+            }
+          }
+        },
+      },
+    };
+  };
+
+  const ratingChartOptions = {
     responsive: true,
     plugins: {
       legend: {
         position: "top" as const,
       },
       title: {
-        display: true,
-        text: "Ürün Analizi",
+        display: false,
       },
     },
     scales: {
       y: {
         beginAtZero: true,
+        max: 10,
+        ticks: {
+          callback: function(value: any) {
+            return `${value.toFixed(1)} ⭐`;
+          }
+        }
       },
     },
   };
 
+  // Tablo verisi
+  const tableData = productData
+    ? productData.sellers.map((seller, index) => ({
+        key: index,
+        seller: seller === "1126746" ? `${seller} (Sizin Mağaza)` : seller,
+        price: productData.prices[index],
+        rating: productData.ratings[index],
+        difference: productData.minPrice < productData.prices[index] ? productData.prices[index] - productData.minPrice : 0,
+      }))
+    : [];
+
+  const tableColumns = [
+    {
+      title: "Satıcı",
+      dataIndex: "seller",
+      key: "seller",
+      render: (text: string) => {
+        if (text.includes("Sizin Mağaza")) {
+          return <Tag color="gold">{text}</Tag>;
+        }
+        return text;
+      }
+    },
+    {
+      title: "Fiyat (TL)",
+      dataIndex: "price",
+      key: "price",
+      render: (price: number) => `${price.toFixed(2)} TL`,
+      sorter: (a: any, b: any) => a.price - b.price,
+    },
+    {
+      title: "Rating",
+      dataIndex: "rating",
+      key: "rating",
+      render: (rating: number) => `${rating.toFixed(1)} ⭐`,
+      sorter: (a: any, b: any) => a.rating - b.rating,
+    },
+    {
+      title: "Fiyat Farkı",
+      dataIndex: "difference",
+      key: "difference",
+      render: (diff: number) => {
+        if (diff === 0) {
+          return <Tag color="green">En Düşük</Tag>;
+        }
+        return <span style={{ color: "#ff4d4f" }}>+{diff.toFixed(2)} TL</span>;
+      },
+      sorter: (a: any, b: any) => a.difference - b.difference,
+    },
+  ];
+
   return (
-    <div style={{ padding: "20px" }}>
-      <Card>
-        <h1>📈 Trend Analizi</h1>
-        <p>Ürün fiyat ve satıcı karşılaştırması</p>
+    <div style={{ padding: "20px", minHeight: "100vh", backgroundColor: "#f5f5f5" }}>
+      {/* Geri Dönüş Butonu */}
+      <Button 
+        type="primary" 
+        icon={<ArrowLeftOutlined />} 
+        onClick={() => navigate("/reports")}
+        style={{ marginBottom: "20px" }}
+      >
+        Raporlara Dön
+      </Button>
+
+      <Card style={{ marginBottom: "20px" }}>
+        <h1 style={{ marginBottom: "10px" }}>📈 Trend Analizi</h1>
+        <p style={{ color: "#666", marginBottom: "20px" }}>Ürün fiyat ve satıcı karşılaştırması</p>
 
         <div style={{ marginBottom: 20 }}>
           <Select
             placeholder="Ürün Seç"
             value={selectedProduct || undefined}
             onChange={setSelectedProduct}
-            style={{ width: "300px" }}
+            style={{ width: "100%", maxWidth: "400px" }}
             options={productNames.map((name) => ({ label: name, value: name }))}
           />
         </div>
 
         <Spin spinning={loading} description="Rapor yükleniyor...">
           {productData ? (
-            <Row gutter={[20, 20]}>
-              <Col xs={24} md={12}>
-                <Card title="Satıcı Bazında Fiyat Karşılaştırması">
-                  {priceChartData && <Bar data={priceChartData} options={chartOptions} />}
-                </Card>
-              </Col>
-              <Col xs={24} md={12}>
-                <Card title="Satıcı Bazında Rating Karşılaştırması">
-                  {ratingChartData && <Line data={ratingChartData} options={chartOptions} />}
-                </Card>
-              </Col>
-            </Row>
+            <>
+              {/* Özet Bilgi Kartları */}
+              <Row gutter={[16, 16]} style={{ marginBottom: "30px" }}>
+                <Col xs={24} sm={8}>
+                  <Card style={{ textAlign: "center", backgroundColor: "#f0f5ff", border: "1px solid #b6e3ff" }}>
+                    <Statistic
+                      title="En Düşük Fiyat"
+                      value={productData.minPrice}
+                      precision={2}
+                      suffix="TL"
+                      valueStyle={{ color: "#1890ff" }}
+                    />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Card style={{ textAlign: "center", backgroundColor: "#fffbe6", border: "1px solid #ffe58f" }}>
+                    <Statistic
+                      title="Ortalama Fiyat"
+                      value={productData.avgPrice}
+                      precision={2}
+                      suffix="TL"
+                      valueStyle={{ color: "#faad14" }}
+                    />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Card style={{ textAlign: "center", backgroundColor: "#f6ffed", border: "1px solid #b7eb8f" }}>
+                    <Statistic
+                      title="Fiyat Aralığı"
+                      value={productData.maxPrice - productData.minPrice}
+                      precision={2}
+                      suffix="TL"
+                      valueStyle={{ color: "#52c41a" }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+
+              {/* Grafikler */}
+              <Row gutter={[20, 20]} style={{ marginBottom: "30px" }}>
+                <Col xs={24} md={12}>
+                  <Card title="💰 Satıcı Bazında Fiyat Karşılaştırması" bordered={false} style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
+                    {priceChartData && <Bar data={priceChartData} options={getPriceChartOptions()} />}
+                  </Card>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Card title="⭐ Satıcı Bazında Rating Karşılaştırması" bordered={false} style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
+                    {ratingChartData && <Line data={ratingChartData} options={ratingChartOptions} />}
+                  </Card>
+                </Col>
+              </Row>
+
+              {/* Detaylı Tablo */}
+              <Card title="📊 Detaylı Satıcı Bilgileri" bordered={false} style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
+                <Table 
+                  columns={tableColumns} 
+                  dataSource={tableData}
+                  pagination={{ pageSize: 10 }}
+                  size="middle"
+                />
+              </Card>
+            </>
           ) : (
             <Empty description="Veri bulunamadı" />
           )}
