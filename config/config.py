@@ -17,7 +17,7 @@ class Config:
         "TRENDYOL_STORE_URL",
         "https://www.trendyol.com/sr?mid=1126746&os=1"
     )
-    MY_MERCHANT_ID: str = os.getenv("MY_MERCHANT_ID", "") # Kendi mağazanızın Trendyol Merchant ID'si
+    MY_MERCHANT_ID: str = os.getenv("MY_MERCHANT_ID", "1126746") # Kendi mağazanızın Trendyol Merchant ID'si
     
     # Telegram Ayarları
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
