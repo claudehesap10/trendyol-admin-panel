@@ -204,7 +204,7 @@ class MainController:
 
                 logger.info(f"🚨 Buy Box Uyarısı: {product_name} ürününde daha ucuz rakip bulundu!")
                 logger.info(f"   Kendi Fiyatım: {my_price:.2f} TL")
-                logger.info(f"   Rakip: {cheapest_competitor["name"]} - {cheapest_competitor["price"]:.2f} TL (Fark: {price_difference:.2f} TL)")
+                logger.info(f"   Rakip: {cheapest_competitor['name']} - {cheapest_competitor['price']:.2f} TL (Fark: {price_difference:.2f} TL)")
 
                 if self.telegram:
                     self.telegram.send_buy_box_notification(
