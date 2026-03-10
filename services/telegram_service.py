@@ -94,7 +94,25 @@ class TelegramService:
         except Exception as e:
             logger.error(f"❌ Hata bildirimi gönderim hatası: {e}")
             return False
-    
+
+    def send_buy_box_notification(self, product_name: str, product_url: str, competitor_name: str, competitor_price: float, my_price: float, price_difference: float) -> bool:
+        """Buy Box bildirimi gönderir"""
+        try:
+            text = (
+                f"🚨 <b>BUY BOX UYARISI!</b> 🚨\n\n"
+                f"Ürün Adı: <b>{product_name}</b>\n"
+                f"Ürün Linki: <a href=\"{product_url}\">Trendyol Sayfası</a>\n\n"
+                f"Rakip Satıcı: <b>{competitor_name}</b>\n"
+                f"Rakip Fiyatı: <b>{competitor_price:.2f} TL</b>\n"
+                f"Sizin Fiyatınız: {my_price:.2f} TL\n"
+                f"Fiyat Farkı: <b>{price_difference:.2f} TL</b> (Rakip daha ucuz)\n\n"
+                f"Hemen kontrol edin ve aksiyon alın!"
+            )
+            return self.send_message(text)
+        except Exception as e:
+            logger.error(f"❌ Buy Box bildirimi gönderim hatası: {e}")
+            return False
+
     def send_start_notification(self) -> bool:
         """Tarama başlangıç bildirimi gönder"""
         try:

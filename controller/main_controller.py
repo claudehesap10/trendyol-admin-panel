@@ -139,6 +139,9 @@ class MainController:
                 product['sellers'] = sellers
                 products_with_sellers.append(product)
                 logger.info(f"  ✓ {len(sellers)} satıcı bulundu")
+
+                # Buy Box kontrolü ve bildirim
+                self._check_buy_box_and_notify(product)
             
             # Excel raporu oluştur
             report_path = self.excel_gen.generate_report(products_with_sellers)
@@ -166,7 +169,64 @@ class MainController:
         except Exception as e:
             logger.error(f"❌ Tarama hatası: {e}")
             return False
-    
+
+    def _check_buy_box_and_notify(self, product: dict) -> None:
+        """Bir ürün için Buy Box durumunu kontrol eder ve bildirim gönderir."""
+        my_merchant_id = self.config.MY_MERCHANT_ID
+        product_name = product.get("name", "Bilinmeyen Ürün")
+        product_url = product.get("url", "#")
+        sellers = product.get("sellers", [])
+
+        if not my_merchant_id:
+            logger.warning("⚠️ Kendi mağaza ID'si tanımlanmamış, Buy Box kontrolü atlanıyor.")
+            return
+
+        my_seller_info = None
+        cheaper_competitors = []
+
+        for seller in sellers:
+            if seller.get("id") == my_merchant_id:
+                my_seller_info = seller
+            else:
+                cheaper_competitors.append(seller)
+        
+        # Kendi fiyatımızı bulduktan sonra rakipleri filtrele
+        if my_seller_info and my_seller_info.get("price"):
+            my_price = my_seller_info["price"]
+            
+            # Sadece bizden daha ucuz olan rakipleri al
+            cheaper_competitors = [s for s in cheaper_competitors if s.get("price") < my_price]
+            
+            # En ucuz rakibi bul
+            if cheaper_competitors:
+                cheapest_competitor = min(cheaper_competitors, key=lambda x: x.get("price"))
+                price_difference = my_price - cheapest_competitor["price"]
+
+                logger.info(f"🚨 Buy Box Uyarısı: {product_name} ürününde daha ucuz rakip bulundu!")
+                logger.info(f"   Kendi Fiyatım: {my_price:.2f} TL")
+                logger.info(f"   Rakip: {cheapest_competitor["name"]} - {cheapest_competitor["price"]:.2f} TL (Fark: {price_difference:.2f} TL)")
+
+                if self.telegram:
+                    self.telegram.send_buy_box_notification(
+                        product_name,
+                        product_url,
+                        cheapest_competitor["name"],
+                        cheapest_competitor["price"],
+                        my_price,
+                        price_difference
+                    )
+                if self.email_sender:
+                    self.email_sender.send_buy_box_notification(
+                        product_name,
+                        product_url,
+                        cheapest_competitor["name"],
+                        cheapest_competitor["price"],
+                        my_price,
+                        price_difference
+                    )
+        elif not my_seller_info:
+            logger.info(f"ℹ️ {product_name} ürünü için kendi mağaza bilgilerim bulunamadı. Buy Box kontrolü yapılamadı.")
+
     def _send_success_notification(self) -> None:
         """Başarı bildirimi gönder"""
         try:

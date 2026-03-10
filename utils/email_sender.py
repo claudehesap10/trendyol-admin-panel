@@ -101,3 +101,47 @@ Trendyol Scraper Bot
         except Exception as e:
             logger.error(f"❌ Email gönderme hatası: {e}")
             return False
+
+    def send_buy_box_notification(self, product_name: str, product_url: str, competitor_name: str, competitor_price: float, my_price: float, price_difference: float) -> bool:
+        """Buy Box bildirimi gönderir"""
+        try:
+            if not all([self.sender_email, self.sender_password, self.recipient_email]):
+                logger.warning("⚠️ Email konfigürasyonu eksik (SMTP_EMAIL, SMTP_PASSWORD, RECIPIENT_EMAIL)")
+                return False
+
+            msg = MIMEMultipart()
+            msg["From"] = self.sender_email
+            msg["To"] = self.recipient_email
+            msg["Date"] = formatdate(localtime=True)
+            msg["Subject"] = f"🚨 Buy Box Uyarısı: {product_name}"
+
+            body = f"""
+Merhaba,
+
+Trendyol'da bir ürününüz için Buy Box uyarısı aldınız!
+
+Ürün Adı: {product_name}
+Ürün Linki: {product_url}
+
+Rakip Satıcı: {competitor_name}
+Rakip Fiyatı: {competitor_price:.2f} TL
+Sizin Fiyatınız: {my_price:.2f} TL
+Fiyat Farkı: {price_difference:.2f} TL (Rakip sizden daha ucuz)
+
+Hemen kontrol edin ve aksiyon alın!
+
+Saygılarımızla,
+Trendyol Scraper Bot
+"""
+            msg.attach(MIMEText(body, "plain", "utf-8"))
+
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+
+            logger.info(f"✅ Buy Box email bildirimi gönderildi: {self.recipient_email}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Buy Box email gönderim hatası: {e}")
+            return False
