@@ -8,13 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, TrendingUp, TrendingDown, Minus, ArrowUpRight, ArrowDownRight } from "lucide-react";
-import { Line, Bar } from "react-chartjs-2";
+import { Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
   LinearScale,
-  PointElement,
-  LineElement,
   BarElement,
   Title,
   Tooltip,
@@ -25,8 +23,6 @@ import {
 ChartJS.register(
   CategoryScale,
   LinearScale,
-  PointElement,
-  LineElement,
   BarElement,
   Title,
   Tooltip,
@@ -178,32 +174,6 @@ export default function TrendAnalysis() {
       }
     : null;
 
-  const ratingChartData = productData
-    ? {
-        labels: productData.sellers.map(s => s.length > 20 ? s.substring(0, 17) + '...' : s),
-        datasets: [
-          {
-            label: "Rating (⭐)",
-            data: productData.ratings,
-            borderColor: "rgba(251, 146, 60, 1)",
-            backgroundColor: "rgba(251, 146, 60, 0.1)",
-            borderWidth: 3,
-            fill: true,
-            tension: 0.4,
-            pointBackgroundColor: productData.sellers.map(s => 
-              s.toUpperCase().includes(MY_STORE_NAME.toUpperCase()) 
-                ? "rgba(34, 197, 94, 1)"
-                : "rgba(251, 146, 60, 1)"
-            ),
-            pointBorderColor: "#fff",
-            pointBorderWidth: 2,
-            pointRadius: 6,
-            pointHoverRadius: 8,
-          },
-        ],
-      }
-    : null;
-
   // Dinamik Y ekseni ayarları
   const priceChartOptions: ChartOptions<'bar'> = {
     responsive: true,
@@ -258,61 +228,6 @@ export default function TrendAnalysis() {
     },
   };
 
-  const ratingChartOptions: ChartOptions<'line'> = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: true,
-        position: "top",
-        labels: {
-          font: { size: 12, weight: 'bold' },
-          padding: 15,
-        }
-      },
-      title: {
-        display: false,
-      },
-      tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        padding: 12,
-        titleFont: { size: 14, weight: 'bold' },
-        bodyFont: { size: 13 },
-        callbacks: {
-          label: (context) => {
-            const label = context.dataset.label || '';
-            const value = context.parsed.y;
-            return `${label}: ${value?.toFixed(1) ?? '0.0'} / 5.0`;
-          }
-        }
-      }
-    },
-    scales: {
-      y: {
-        beginAtZero: true,
-        max: 5,
-        ticks: {
-          stepSize: 1,
-          callback: (value) => `${value} ⭐`,
-          font: { size: 11 }
-        },
-        grid: {
-          color: 'rgba(0, 0, 0, 0.05)',
-        }
-      },
-      x: {
-        ticks: {
-          font: { size: 10 },
-          maxRotation: 45,
-          minRotation: 45,
-        },
-        grid: {
-          display: false,
-        }
-      },
-    },
-  };
-
   if (loading) {
     return (
       <div className="container mx-auto p-6 space-y-6">
@@ -334,229 +249,227 @@ export default function TrendAnalysis() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Header with Back Button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button 
-            variant="outline" 
-            size="icon"
-            onClick={() => setLocation("/reports")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">📈 Trend Analizi</h1>
-            <p className="text-muted-foreground">Ürün fiyat ve satıcı karşılaştırması</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setLocation("/reports")}
+              className="hover:bg-white/80"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+                Trend Analizi
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">Rakiplerinle kıyasla, stratejini belirle</p>
+            </div>
           </div>
+          <Button onClick={fetchReport} variant="outline" className="bg-white">
+            Yenile
+          </Button>
         </div>
-        <Button onClick={fetchReport} variant="outline">
-          Yenile
-        </Button>
-      </div>
 
-      {/* Error State */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+        {/* Error State */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-      {/* Product Selector */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Ürün Seçimi</CardTitle>
-          <CardDescription>Analiz etmek istediğiniz ürünü seçin</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Select value={selectedProduct} onValueChange={setSelectedProduct}>
-            <SelectTrigger className="max-w-md">
-              <SelectValue placeholder="Bir ürün seçin..." />
-            </SelectTrigger>
-            <SelectContent>
-              {productNames.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
+        {/* Product Selector - Daha prominent */}
+        <Card className="border-2 border-indigo-100 shadow-lg">
+          <CardContent className="pt-6">
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-slate-700">Analiz edilecek ürün</label>
+              <Select value={selectedProduct} onValueChange={setSelectedProduct}>
+                <SelectTrigger className="h-12 text-base">
+                  <SelectValue placeholder="Bir ürün seçin..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {productNames.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Comparison Summary Cards */}
-      {comparison && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Fiyat Durumu
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold">{comparison.myPrice.toFixed(2)} ₺</div>
-                  <p className="text-xs text-muted-foreground mt-1">Senin fiyatın</p>
-                </div>
+        {/* Comparison Summary Cards - Daha minimal ve şık */}
+        {comparison && (
+          <>
+            {/* Insight Banner - Önce göster */}
+            <Alert className={`border-2 ${
+              comparison.isExpensive 
+                ? "border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50" 
+                : "border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50"
+            }`}>
+              <AlertDescription className="text-sm leading-relaxed">
                 {comparison.isExpensive ? (
-                  <div className="flex items-center gap-1 text-red-600">
-                    <TrendingUp className="h-5 w-5" />
-                    <span className="text-sm font-semibold">+{comparison.priceDiffPercent}%</span>
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">⚠️</div>
+                    <div>
+                      <p className="font-semibold text-amber-900 mb-1">Fiyat Uyarısı</p>
+                      <p className="text-amber-800">
+                        Fiyatın rakiplerden ortalama <span className="font-bold">{comparison.priceDiff} ₺</span> ({comparison.priceDiffPercent}%) daha yüksek. 
+                        <span className="block mt-1">🎯 {comparison.cheaperThanCount} satıcıdan daha ucuza satış yapabilirsin!</span>
+                      </p>
+                    </div>
                   </div>
                 ) : comparison.isCheaper ? (
-                  <div className="flex items-center gap-1 text-green-600">
-                    <TrendingDown className="h-5 w-5" />
-                    <span className="text-sm font-semibold">{comparison.priceDiffPercent}%</span>
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">🎉</div>
+                    <div>
+                      <p className="font-semibold text-emerald-900 mb-1">Harika Fiyat!</p>
+                      <p className="text-emerald-800">
+                        Fiyatın rakiplerden ortalama <span className="font-bold">{comparison.priceDiff} ₺</span> ({Math.abs(parseFloat(comparison.priceDiffPercent))}%) daha ucuz. 
+                        <span className="block mt-1">✨ {comparison.cheaperThanCount} satıcıyı geride bırakıyorsun!</span>
+                      </p>
+                    </div>
                   </div>
                 ) : (
-                  <Minus className="h-5 w-5 text-gray-400" />
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Rekabet Durumu
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Daha ucuz</span>
-                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                    <ArrowDownRight className="h-3 w-3 mr-1" />
-                    {comparison.cheaperThanCount} satıcı
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Daha pahalı</span>
-                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                    <ArrowUpRight className="h-3 w-3 mr-1" />
-                    {comparison.expensiveThanCount} satıcı
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Piyasa Ortalaması
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div>
-                  <div className="text-2xl font-bold">{comparison.avgPrice} ₺</div>
-                  <p className="text-xs text-muted-foreground">Ortalama fiyat</p>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Badge variant="secondary" className="text-xs">
-                    Min: {comparison.minPrice} ₺
-                  </Badge>
-                  <Badge variant="secondary" className="text-xs">
-                    Max: {comparison.maxPrice} ₺
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Rating Durumu
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div>
-                  <div className="text-2xl font-bold flex items-center gap-2">
-                    {comparison.myRating.toFixed(1)} <span className="text-yellow-500">⭐</span>
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">ℹ️</div>
+                    <div>
+                      <p className="font-semibold text-blue-900 mb-1">Dengeli Fiyat</p>
+                      <p className="text-blue-800">Fiyatın piyasa ortalamasına oldukça yakın.</p>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">Senin rating'in</p>
+                )}
+              </AlertDescription>
+            </Alert>
+
+            {/* Stats Grid - 3 kolon */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Benim Fiyatım */}
+              <Card className="relative overflow-hidden border-2 border-indigo-100 hover:shadow-xl transition-all duration-300">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 rounded-bl-full" />
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Senin Fiyatın</span>
+                      {comparison.isExpensive ? (
+                        <Badge variant="destructive" className="text-xs">Yüksek</Badge>
+                      ) : comparison.isCheaper ? (
+                        <Badge className="bg-green-500 text-xs">İyi</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">Normal</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-bold text-slate-900">{comparison.myPrice.toFixed(2)}</span>
+                      <span className="text-lg text-slate-500">₺</span>
+                    </div>
+                    {comparison.isExpensive ? (
+                      <div className="flex items-center gap-1 text-red-600 text-sm font-semibold">
+                        <TrendingUp className="h-4 w-4" />
+                        <span>Ort. +{comparison.priceDiffPercent}%</span>
+                      </div>
+                    ) : comparison.isCheaper ? (
+                      <div className="flex items-center gap-1 text-green-600 text-sm font-semibold">
+                        <TrendingDown className="h-4 w-4" />
+                        <span>Ort. {comparison.priceDiffPercent}%</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-slate-400 text-sm">
+                        <Minus className="h-4 w-4" />
+                        <span>Ortalama seviyede</span>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Piyasa Ortalaması */}
+              <Card className="relative overflow-hidden border-2 border-slate-100 hover:shadow-xl transition-all duration-300">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-slate-500/10 to-slate-600/10 rounded-bl-full" />
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Piyasa Ortalaması</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-bold text-slate-900">{comparison.avgPrice}</span>
+                      <span className="text-lg text-slate-500">₺</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="text-xs border-emerald-200 text-emerald-700 bg-emerald-50">
+                        Min {comparison.minPrice}₺
+                      </Badge>
+                      <Badge variant="outline" className="text-xs border-rose-200 text-rose-700 bg-rose-50">
+                        Max {comparison.maxPrice}₺
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Rekabet Pozisyonu */}
+              <Card className="relative overflow-hidden border-2 border-amber-100 hover:shadow-xl transition-all duration-300">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-bl-full" />
+                <CardContent className="pt-6">
+                  <div className="space-y-3">
+                    <span className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Rekabet Durumu</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between bg-green-50 rounded-lg p-2">
+                        <span className="text-xs font-medium text-green-700">Senden ucuz</span>
+                        <div className="flex items-center gap-1">
+                          <ArrowDownRight className="h-3 w-3 text-green-600" />
+                          <span className="text-lg font-bold text-green-700">{comparison.expensiveThanCount}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between bg-red-50 rounded-lg p-2">
+                        <span className="text-xs font-medium text-red-700">Senden pahalı</span>
+                        <div className="flex items-center gap-1">
+                          <ArrowUpRight className="h-3 w-3 text-red-600" />
+                          <span className="text-lg font-bold text-red-700">{comparison.cheaperThanCount}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
+
+        {/* Charts - Sadece Fiyat */}
+        {productData ? (
+          <Card className="border-2 border-slate-100 shadow-lg">
+            <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center text-white text-xl">
+                  💰
                 </div>
-                <div className="text-sm text-muted-foreground">
-                  Ortalama: {comparison.avgRating} ⭐
+                <div>
+                  <CardTitle className="text-lg">Fiyat Karşılaştırması</CardTitle>
+                  <CardDescription className="text-xs">
+                    {productData.sellers.length} satıcı arasında fiyat dağılımı
+                  </CardDescription>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Insight Banner */}
-      {comparison && (
-        <Alert className={comparison.isExpensive ? "border-orange-200 bg-orange-50" : "border-green-200 bg-green-50"}>
-          <AlertDescription className="text-sm">
-            {comparison.isExpensive ? (
-              <span className="font-medium text-orange-900">
-                💡 Fiyatın rakiplerden ortalama <strong>{comparison.priceDiff} ₺</strong> ({comparison.priceDiffPercent}%) daha yüksek. 
-                Fiyat düşürmeyi düşünebilirsin! {comparison.cheaperThanCount} satıcıdan daha pahalısın.
-              </span>
-            ) : comparison.isCheaper ? (
-              <span className="font-medium text-green-900">
-                ✅ Harika! Fiyatın rakiplerden ortalama <strong>{comparison.priceDiff} ₺</strong> ({Math.abs(parseFloat(comparison.priceDiffPercent))}%) daha ucuz. 
-                {comparison.cheaperThanCount} satıcıdan daha ucuzsun!
-              </span>
-            ) : (
-              <span className="font-medium text-blue-900">
-                ℹ️ Fiyatın piyasa ortalamasına yakın.
-              </span>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Charts */}
-      {productData ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                💰 Fiyat Karşılaştırması
-              </CardTitle>
-              <CardDescription>
-                Satıcılar arasında fiyat dağılımı ({productData.sellers.length} satıcı)
-              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="h-[400px]">
+            <CardContent className="pt-6">
+              <div className="h-[600px]">
                 {priceChartData && <Bar data={priceChartData} options={priceChartOptions} />}
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                ⭐ Rating Karşılaştırması
-              </CardTitle>
-              <CardDescription>
-                Satıcılar arasında müşteri memnuniyeti karşılaştırması
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[400px]">
-                {ratingChartData && <Line data={ratingChartData} options={ratingChartOptions} />}
-              </div>
+        ) : (
+          <Card className="border-2 border-dashed border-slate-200">
+            <CardContent className="flex flex-col items-center justify-center h-64 text-center">
+              <div className="text-6xl mb-4">📊</div>
+              <p className="text-lg font-medium text-slate-700">Veri bulunamadı</p>
+              <p className="text-sm text-muted-foreground mt-1">Lütfen yukarıdan bir ürün seçin</p>
             </CardContent>
           </Card>
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="flex items-center justify-center h-64">
-            <div className="text-center text-muted-foreground">
-              <p className="text-lg font-medium">Veri bulunamadı</p>
-              <p className="text-sm">Lütfen bir ürün seçin</p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        )}
+      </div>
     </div>
   );
 }
