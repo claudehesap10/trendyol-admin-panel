@@ -51,6 +51,9 @@ interface GroupedProduct {
   allSellers: SellerInfo[];
 }
 
+type SortField = "buyBoxPrice" | "rating" | "sellerCount" | null;
+type SortDir = "asc" | "desc";
+
 export default function Reports() {
   const [data, setData] = useState<ReportData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,6 +63,9 @@ export default function Reports() {
   const [lastScanTime, setLastScanTime] = useState<string>("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const pageSize = 25;
 
   // Veriyi ürün bazlı grupla ve Buy Box belirle
@@ -156,8 +162,23 @@ export default function Reports() {
       );
     }
 
+    // Sıralama
+    if (sortField) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal = 0, bVal = 0;
+        if (sortField === "buyBoxPrice") {
+          aVal = a.buyBoxPrice; bVal = b.buyBoxPrice;
+        } else if (sortField === "rating") {
+          aVal = a.buyBoxRating; bVal = b.buyBoxRating;
+        } else if (sortField === "sellerCount") {
+          aVal = a.allSellers.length; bVal = b.allSellers.length;
+        }
+        return sortDir === "asc" ? aVal - bVal : bVal - aVal;
+      });
+    }
+
     return filtered;
-  }, [groupedProducts, selectedProduct, selectedSeller, searchText]);
+  }, [groupedProducts, selectedProduct, selectedSeller, searchText, sortField, sortDir]);
 
   // Benzersiz ürün isimleri
   const productNames = useMemo(() => {
@@ -213,7 +234,14 @@ export default function Reports() {
   // Sayfa değişince accordion kapat
   useEffect(() => {
     setExpandedRow(null);
+    setSelectedRows(new Set());
   }, [currentPage, searchText, selectedProduct, selectedSeller]);
+
+  // Sort değişince sayfa 1'e dön ve accordion kapat
+  useEffect(() => {
+    setCurrentPage(1);
+    setExpandedRow(null);
+  }, [sortField, sortDir]);
 
   // Excel'e indir
   const downloadExcel = () => {
@@ -249,6 +277,79 @@ export default function Reports() {
   // Satırı genişlet/daralt
   const toggleRow = (productName: string) => {
     setExpandedRow(prev => prev === productName ? null : productName);
+  };
+
+  // Sıralama toggle
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  // Satır seçimi toggle
+  const toggleRowSelect = (productName: string) => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      next.has(productName) 
+        ? next.delete(productName) 
+        : next.add(productName);
+      return next;
+    });
+  };
+
+  // Tümünü seç/seçimi kaldır
+  const toggleSelectAll = () => {
+    setSelectedRows(prev =>
+      prev.size === paginatedProducts.length
+        ? new Set()
+        : new Set(paginatedProducts.map(p => p.productName))
+    );
+  };
+
+  // Seçilenleri indir
+  const downloadSelected = () => {
+    const selected = groupedProducts.filter(p => 
+      selectedRows.has(p.productName)
+    );
+    const exportData = selected.flatMap(product =>
+      product.allSellers.map(seller => ({
+        "Ürün Adı": product.productName,
+        "Ürün Linki": product.productLink,
+        "Satıcı": seller.sellerName,
+        "Orijinal Fiyat (TL)": seller.originalPrice,
+        "Son Fiyat (TL)": seller.finalPrice,
+        "İndirim %": Math.round(
+          (1 - seller.finalPrice / seller.originalPrice) * 100
+        ),
+        "Rating": seller.rating,
+        "Buy Box": seller.isBuyBox ? "Evet" : "Hayır",
+      }))
+    );
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Seçilenler");
+    XLSX.writeFile(wb, "secilen-urunler.xlsx");
+    setSelectedRows(new Set());
+  };
+
+  // Sort icon bileşeni
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return (
+      <svg width="12" height="12" viewBox="0 0 24 24" 
+        fill="none" stroke="currentColor" 
+        strokeWidth="2" className="opacity-30">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <polyline points="19 12 12 19 5 12"/>
+      </svg>
+    );
+    return sortDir === "asc" ? (
+      <ChevronUp className="h-3 w-3 text-emerald-600" />
+    ) : (
+      <ChevronDown className="h-3 w-3 text-emerald-600" />
+    );
   };
 
   return (
@@ -346,6 +447,136 @@ export default function Reports() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Aktif Filtre Pill'leri */}
+            {(searchText || selectedProduct || selectedSeller) && (
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                <span className="text-xs text-muted-foreground">
+                  Aktif filtreler:
+                </span>
+
+                {searchText && (
+                  <button
+                    onClick={() => setSearchText("")}
+                    className="inline-flex items-center gap-1.5 
+                      bg-blue-50 text-blue-700 border border-blue-200
+                      text-[11px] font-medium px-2.5 py-1 rounded-full
+                      hover:bg-blue-100 transition-colors"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" 
+                      fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="11" cy="11" r="8"/>
+                      <path d="M21 21l-4.35-4.35"/>
+                    </svg>
+                    "{searchText}"
+                    <svg width="10" height="10" viewBox="0 0 24 24" 
+                      fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                )}
+
+                {selectedProduct && (
+                  <button
+                    onClick={() => setSelectedProduct("")}
+                    className="inline-flex items-center gap-1.5
+                      bg-emerald-50 text-emerald-700 border border-emerald-200
+                      text-[11px] font-medium px-2.5 py-1 rounded-full
+                      hover:bg-emerald-100 transition-colors"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="2" y="3" width="20" height="14" rx="2"/>
+                      <path d="M8 21h8M12 17v4"/>
+                    </svg>
+                    {selectedProduct.length > 30 
+                      ? selectedProduct.slice(0, 30) + "..." 
+                      : selectedProduct}
+                    <svg width="10" height="10" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                )}
+
+                {selectedSeller && (
+                  <button
+                    onClick={() => setSelectedSeller("")}
+                    className="inline-flex items-center gap-1.5
+                      bg-amber-50 text-amber-700 border border-amber-200
+                      text-[11px] font-medium px-2.5 py-1 rounded-full
+                      hover:bg-amber-100 transition-colors"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                      <circle cx="9" cy="7" r="4"/>
+                    </svg>
+                    {selectedSeller}
+                    <svg width="10" height="10" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                )}
+
+                {(searchText && selectedProduct) || 
+                 (searchText && selectedSeller) || 
+                 (selectedProduct && selectedSeller) ? (
+                  <button
+                    onClick={() => {
+                      setSearchText("")
+                      setSelectedProduct("")
+                      setSelectedSeller("")
+                    }}
+                    className="inline-flex items-center gap-1
+                      text-[11px] text-muted-foreground
+                      hover:text-foreground transition-colors
+                      underline underline-offset-2"
+                  >
+                    Tümünü temizle
+                  </button>
+                ) : null}
+              </div>
+            )}
+
+            {/* Seçim Aksiyon Barı */}
+            {selectedRows.size > 0 && (
+              <div className="flex items-center justify-between
+                bg-emerald-50 border border-emerald-200 
+                rounded-lg px-4 py-2.5">
+                <span className="text-sm font-medium text-emerald-700">
+                  {selectedRows.size} ürün seçildi
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedRows(new Set())}
+                    className="text-xs text-emerald-600 
+                      hover:text-emerald-800 transition-colors"
+                  >
+                    Seçimi temizle
+                  </button>
+                  <button
+                    onClick={downloadSelected}
+                    className="inline-flex items-center gap-1.5
+                      bg-emerald-600 text-white text-xs font-medium
+                      px-3 py-1.5 rounded-md
+                      hover:bg-emerald-700 transition-colors"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Seçilenleri İndir
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Tablo */}
@@ -355,20 +586,118 @@ export default function Reports() {
               <span className="ml-2 text-muted-foreground">Rapor yükleniyor...</span>
             </div>
           ) : filteredProducts.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p>Rapor bulunamadı</p>
+            <div className="flex flex-col items-center justify-center 
+              py-16 gap-4">
+              
+              <div className="w-12 h-12 rounded-full bg-muted 
+                flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" 
+                  fill="none" stroke="currentColor" 
+                  strokeWidth="1.5" className="text-muted-foreground">
+                  <circle cx="11" cy="11" r="8"/>
+                  <path d="M21 21l-4.35-4.35"/>
+                </svg>
+              </div>
+
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground mb-1">
+                  {searchText 
+                    ? `"${searchText}" için sonuç bulunamadı`
+                    : selectedProduct || selectedSeller
+                      ? "Seçili filtreye uyan ürün bulunamadı"
+                      : "Henüz rapor verisi yok"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {searchText || selectedProduct || selectedSeller
+                    ? "Farklı bir arama deneyin veya filtreyi kaldırın"
+                    : "Yenile butonuna tıklayarak veri çekmeyi deneyin"}
+                </p>
+              </div>
+
+              {(searchText || selectedProduct || selectedSeller) && (
+                <button
+                  onClick={() => {
+                    setSearchText("")
+                    setSelectedProduct("")
+                    setSelectedSeller("")
+                  }}
+                  className="inline-flex items-center gap-2 
+                    text-sm text-muted-foreground border 
+                    border-border rounded-lg px-4 py-2
+                    hover:bg-muted hover:text-foreground 
+                    transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                  Filtreyi temizle
+                </button>
+              )}
+
+              {!searchText && !selectedProduct && !selectedSeller && (
+                <button
+                  onClick={fetchReport}
+                  className="inline-flex items-center gap-2
+                    text-sm text-muted-foreground border
+                    border-border rounded-lg px-4 py-2
+                    hover:bg-muted hover:text-foreground
+                    transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 4v6h6"/>
+                    <path d="M23 20v-6h-6"/>
+                    <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10
+                         m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                  </svg>
+                  Yenile
+                </button>
+              )}
+
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden relative">
+            <div className="border rounded-lg overflow-hidden overflow-x-auto relative">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-12"></TableHead>
-                    <TableHead>Ürün Adı</TableHead>
-                    <TableHead className="text-right">Buy Box Fiyat</TableHead>
-                    <TableHead className="w-[150px]">Buy Box Satıcı</TableHead>
-                    <TableHead className="text-center">Rating</TableHead>
-                    <TableHead className="text-center">Satıcı Sayısı</TableHead>
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border cursor-pointer"
+                        checked={selectedRows.size === paginatedProducts.length 
+                                 && paginatedProducts.length > 0}
+                        onChange={toggleSelectAll}
+                      />
+                    </TableHead>
+                    <TableHead className="w-12 px-4"></TableHead>
+                    <TableHead className="text-left px-4">Ürün Adı</TableHead>
+                    <TableHead 
+                      className="text-right px-4 cursor-pointer select-none hover:text-foreground transition-colors"
+                      onClick={() => toggleSort("buyBoxPrice")}
+                    >
+                      <div className="flex items-center justify-end gap-1">
+                        Buy Box Fiyat <SortIcon field="buyBoxPrice" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-left px-4 w-[150px]">Buy Box Satıcı</TableHead>
+                    <TableHead 
+                      className="hidden md:table-cell text-center px-4 cursor-pointer select-none hover:text-foreground transition-colors"
+                      onClick={() => toggleSort("rating")}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        Rating <SortIcon field="rating" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="text-center px-4 cursor-pointer select-none hover:text-foreground transition-colors"
+                      onClick={() => toggleSort("sellerCount")}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        Satıcı Sayısı <SortIcon field="sellerCount" />
+                      </div>
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -396,7 +725,15 @@ export default function Reports() {
                                     : ""
                             }`}
                           >
-                            <TableCell className="w-9">
+                            <TableCell className="w-10 px-4" onClick={e => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                className="rounded border-border cursor-pointer"
+                                checked={selectedRows.has(product.productName)}
+                                onChange={() => toggleRowSelect(product.productName)}
+                              />
+                            </TableCell>
+                            <TableCell className="w-9 px-4">
                               {hasMultipleSellers ? (
                                 isExpanded 
                                   ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -405,7 +742,7 @@ export default function Reports() {
                                 <div className="w-4" />
                               )}
                             </TableCell>
-                            <TableCell className="min-w-0 max-w-0">
+                            <TableCell className="min-w-0 max-w-0 px-4">
                               <div className="flex items-center gap-2 min-w-0">
                                 <TooltipProvider delayDuration={300}>
                                   <Tooltip>
@@ -435,10 +772,10 @@ export default function Reports() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="text-right font-semibold text-green-600">
+                            <TableCell className="text-right px-4 font-semibold text-green-600 text-base">
                               ₺{product.buyBoxPrice.toFixed(2)}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="px-4">
                               <TooltipProvider delayDuration={300}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
@@ -452,20 +789,29 @@ export default function Reports() {
                                 </Tooltip>
                               </TooltipProvider>
                             </TableCell>
-                            <TableCell className="text-center">
+                            <TableCell className="hidden md:table-cell text-center px-4">
                               <div className="flex items-center justify-center gap-1">
                                 <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                                 <span>{product.buyBoxRating}</span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="outline">{product.allSellers.length}</Badge>
+                            <TableCell className="text-center px-4">
+                              <div className="inline-flex items-center justify-center gap-1">
+                                <span className="font-medium tabular-nums">{product.allSellers.length}</span>
+                                {product.allSellers.length > 1 && (
+                                  <ChevronDown className={`h-3 w-3 text-muted-foreground 
+                                    transition-transform duration-200 ${
+                                      isExpanded ? "rotate-180" : ""
+                                    }`}
+                                  />
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         {isExpanded && (
                           <TableRow className="border-l-2 border-l-emerald-500">
                             <TableCell
-                              colSpan={6}
+                              colSpan={7}
                               className="p-0 bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-200"
                             >
                                 <div className="p-4">
@@ -479,8 +825,10 @@ export default function Reports() {
                                         return (
                                           <div
                                             key={idx}
-                                            className={`bg-white border rounded-xl p-4 grid grid-cols-4 gap-4 items-center ${
-                                              seller.isBuyBox ? 'border-emerald-300 bg-emerald-50/50' : ''
+                                            className={`bg-white border rounded-xl p-4 grid grid-cols-4 gap-4 items-center transition-all duration-150 ${
+                                              seller.isBuyBox 
+                                                ? 'border-emerald-300 bg-emerald-50/50 hover:border-emerald-400 hover:shadow-sm' 
+                                                : 'hover:border-border hover:shadow-sm'
                                             }`}
                                           >
                                             {/* Satıcı Kimliği */}
