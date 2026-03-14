@@ -19,7 +19,7 @@ class GitHubHelper:
         if self.token:
             self.headers["Authorization"] = f"token {self.token}"
 
-    async def get_latest_reports(self, limit: int = 2) -> List[Dict]:
+    def get_latest_reports(self, limit: int = 2) -> List[Dict]:
         """
         En güncel release'leri çekip içindeki Excel dosyalarını bulur.
         
@@ -36,8 +36,8 @@ class GitHubHelper:
         """
         try:
             url = f"{self.base_url}/releases"
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self.headers)
+            with httpx.Client() as client:
+                response = client.get(url, headers=self.headers)
                 response.raise_for_status()
                 
                 releases = response.json()

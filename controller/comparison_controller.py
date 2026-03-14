@@ -18,7 +18,7 @@ async def compare_reports(show_all: bool = False):
     """
     try:
         logger.info(f"GET /api/reports/compare çağrıldı (show_all={show_all})")
-        results = await comparison_service.compare_latest_reports(only_changes=not show_all)
+        results = comparison_service.compare_latest_reports(only_changes=not show_all)
         
         if "error" in results:
             # İş mantığı hatası (örn: yetersiz rapor)

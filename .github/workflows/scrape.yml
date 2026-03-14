@@ -80,6 +80,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Karşılaştırma ve Bildirim
+        if: success()
+        env:
+          TRENDYOL_STORE_URL: ${{ secrets.TRENDYOL_STORE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          MY_MERCHANT_NAME: ${{ secrets.MY_MERCHANT_NAME }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: |
+          python -c "
+          from services.telegram_service import TelegramService
+          from services.notification_service import NotificationService
+          from config.config import Config
+          import logging
+          
+          logging.basicConfig(level=logging.INFO)
+          
+          telegram = TelegramService(Config.TELEGRAM_BOT_TOKEN, Config.TELEGRAM_CHAT_ID)
+          notification = NotificationService(telegram, Config.MY_MERCHANT_NAME)
+          notification.compare_and_notify()
+          "
+
       - name: Raporları Artifacts'a yükle (Yedek)
         if: success()
         uses: actions/upload-artifact@v4

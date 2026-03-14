@@ -13,11 +13,11 @@ class ReportComparisonService:
     def __init__(self):
         self.github_helper = GitHubHelper()
 
-    async def compare_latest_reports(self, only_changes: bool = True) -> Dict[str, Any]:
+    def compare_latest_reports(self, only_changes: bool = True) -> Dict[str, Any]:
         """En güncel iki raporu karşılaştırır"""
         try:
             # 1. En güncel 2 raporun linklerini al
-            reports = await self.github_helper.get_latest_reports(limit=2)
+            reports = self.github_helper.get_latest_reports(limit=2)
             
             if len(reports) < 2:
                 logger.warning("⚠️ Karşılaştırma için en az 2 rapor gerekiyor.")
@@ -30,8 +30,8 @@ class ReportComparisonService:
             logger.info(f"📊 Karşılaştırılıyor: {new_report_info['tag']} vs {old_report_info['tag']}")
 
             # 2. Excel dosyalarını indir ve DataFrame'e oku
-            df_new = await self._read_excel_from_url(new_report_info['download_url'])
-            df_old = await self._read_excel_from_url(old_report_info['download_url'])
+            df_new = self._read_excel_from_url(new_report_info['download_url'])
+            df_old = self._read_excel_from_url(old_report_info['download_url'])
 
             if df_new is None or df_old is None:
                 return {"error": "Excel dosyaları okunamadı"}
@@ -58,11 +58,11 @@ class ReportComparisonService:
             logger.error(f"❌ Rapor karşılaştırma hatası: {e}")
             return {"error": str(e)}
 
-    async def _read_excel_from_url(self, url: str) -> pd.DataFrame:
+    def _read_excel_from_url(self, url: str) -> pd.DataFrame:
         """URL'den Excel dosyasını indirip pandas DataFrame olarak döner"""
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, follow_redirects=True)
+            with httpx.Client() as client:
+                response = client.get(url, follow_redirects=True)
                 response.raise_for_status()
                 
                 # io.BytesIO ile belleğe al
@@ -148,11 +148,6 @@ class ReportComparisonService:
                     "percent": round(float(percent), 2),
                     "status": status
                 })
-            
-        return {
-            "stats": stats,
-            "changes": changes
-        }
             
         return {
             "stats": stats,
