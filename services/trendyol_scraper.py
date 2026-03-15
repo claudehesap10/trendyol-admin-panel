@@ -420,6 +420,16 @@ class TrendyolScraper:
                 browser, context = self._make_browser_context(p)
                 page = context.new_page()
 
+                # Görsel ve gereksiz kaynakları engelle
+                page.route(
+                    "**/*.{png,jpg,jpeg,gif,webp,css,woff,woff2,svg,ico,mp4,mp3}",
+                    lambda route: route.abort()
+                )
+                page.route("**/googletagmanager**", lambda route: route.abort())
+                page.route("**/google-analytics**", lambda route: route.abort())
+                page.route("**/hotjar**", lambda route: route.abort())
+                page.route("**/facebook**", lambda route: route.abort())
+
                 loaded = False
                 for attempt in range(self.max_retries):
                     try:
@@ -630,9 +640,18 @@ class TrendyolScraper:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
                     btn.scroll_into_view_if_needed()
-                    time.sleep(0.3)
                     btn.click()
-                    time.sleep(2)
+                    
+                    # Panelin yüklenmesini bekle — max 6 saniye
+                    try:
+                        page.wait_for_selector(
+                            '[data-testid="other-seller-item"], '
+                            '.other-seller-item-total-container, '
+                            '[class*="other-seller-item"]',
+                            timeout=6000
+                        )
+                    except:
+                        pass  # Panel gelmezse devam et
                     logger.info("  ✓ 'Diğer Satıcılar' paneli açıldı")
                     return True
             except:
