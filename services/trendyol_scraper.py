@@ -253,9 +253,17 @@ class TrendyolScraper:
         max_attempts = 500   # Mutlak maksimum scroll
 
         for attempt in range(max_attempts):
-            # Küçük adımlarla scroll — lazy load'u tetiklemek için
-            page.evaluate('window.scrollBy(0, 600)')
-            time.sleep(1.5)
+            # Büyük adımlarla scroll — daha az adımda daha fazla mesafe
+            page.evaluate('window.scrollBy(0, 1500)')
+            time.sleep(0.8)
+
+            # Her 3 adımda bir kart sayısını kontrol et — gereksiz DOM sorgusu azaltır
+            if attempt % 3 != 0:
+                no_new_cards += 1
+                if no_new_cards >= max_no_new:
+                    logger.info(f"  ✅ {max_no_new} denemede yeni kart yok — scroll tamamlandı ({last_count} kart)")
+                    break
+                continue
 
             cards = self._find_product_cards(page)
             current_count = len(cards)
@@ -284,13 +292,13 @@ class TrendyolScraper:
                         btn.scroll_into_view_if_needed()
                         btn.click()
                         time.sleep(2)
-                        no_new_cards = 0  # Butona tıkladıktan sonra sıfırla
+                        no_new_cards = 0
                         continue
                 except:
                     pass
 
                 if no_new_cards >= max_no_new:
-                    logger.info(f"  ✅ {max_no_new} denemede yeni kart yok — scroll tamamlandı ({current_count} kart)")
+                    logger.info(f"  ✅ {max_no_new} denemede yeni kart yok — scroll tamamlandı ({last_count} kart)")
                     break
 
         # Başa dön, tüm kartları topla
@@ -422,7 +430,7 @@ class TrendyolScraper:
 
                 # Görsel ve gereksiz kaynakları engelle
                 page.route(
-                    "**/*.{png,jpg,jpeg,gif,webp,css,woff,woff2,svg,ico,mp4,mp3}",
+                    "**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
                     lambda route: route.abort()
                 )
                 page.route("**/googletagmanager**", lambda route: route.abort())
