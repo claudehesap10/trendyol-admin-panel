@@ -91,7 +91,10 @@ class TrendyolScraper:
                     cleaned = cleaned.replace('.', '')
                 # else: "1.5" gibi → ondalık, olduğu gibi bırak
 
-            return float(cleaned)
+            val = float(cleaned)
+            if val > 100000:
+                return 0.0
+            return val
         except:
             return 0.0
 
@@ -468,6 +471,24 @@ class TrendyolScraper:
                             actual_name = n
                             break
 
+                # Barkod
+                barcode = ''
+                try:
+                    items = page.query_selector_all(
+                        'li[class*="content-description-item-description"], '
+                        '[data-testid="content-description-item-wrapper"]'
+                    )
+                    for item in items:
+                        text = item.text_content().strip()
+                        if 'barkod' in text.lower():
+                            match = re.search(r'Barkod\s*No\s*[:\s]+([\w\-]+)', text, re.IGNORECASE)
+                            if match:
+                                barcode = match.group(1)
+                                logger.info(f"  📦 Barkod: {barcode}")
+                                break
+                except:
+                    pass
+
                 # 1. Buy Box satıcısı
                 buy_box = self._extract_buy_box_seller(page)
                 if buy_box:
@@ -489,6 +510,7 @@ class TrendyolScraper:
 
             for s in sellers:
                 s['product_name'] = actual_name
+                s['barcode'] = barcode
 
             logger.info(f"  ✅ Toplam {len(sellers)} satıcı: {[s['name'] for s in sellers]}")
             return sellers
@@ -496,12 +518,6 @@ class TrendyolScraper:
         except Exception as e:
             logger.error(f"❌ Satıcı çekme hatası: {e}")
             return []
-
-            for s in sellers:
-                s['product_name'] = actual_name
-
-            logger.info(f"  ✅ Toplam {len(sellers)} satıcı: {[s['name'] for s in sellers]}")
-            return sellers
 
         except Exception as e:
             logger.error(f"❌ Satıcı çekme hatası: {e}")
@@ -577,6 +593,10 @@ class TrendyolScraper:
                 # Genel: "Kupon" kelimesi geçen element
                 'span:has-text("Kupon")',
                 'div:has-text("Kupon Fırsatı")',
+                # Yeni Trendyol yapısı
+                '[class*="hit-coupon-container"] p[class*="coupon-text"]',
+                '[class*="small-coupon-left"] p',
+                '[data-testid="coupon-left"] p',
             ]
             for sel in coupon_selectors:
                 try:
@@ -624,6 +644,10 @@ class TrendyolScraper:
                 # Yeşil fiyat elementi
                 'span[class*="prc"][class*="basket"]',
                 'span[class*="basket"][class*="prc"]',
+                # Yeni Trendyol yapısı
+                '[class*="campaign-price-wrapper"] .new-price',
+                '[class*="campaign-price-wrapper"] p.new-price',
+                '[class*="campaign-price-content"] .new-price',
             ]
             for sel in basket_price_selectors:
                 try:
@@ -833,9 +857,13 @@ class TrendyolScraper:
                 s['name'] = cleaned
 
         # ── Satış fiyatı ──────────────────────────────────────────────────
-        for sel in ['.prc-dsc', '.discounted', '[class*="prc-dsc"]',
-                    '[class*="discounted"]', '.new-price', '[class*="price"]',
-                    'span[class*="prc"]']:
+        for sel in [
+            '[data-testid="current-price"]',
+            '[data-testid="price-wrapper"] [data-testid="current-price"]',
+            '.prc-dsc', '.discounted', '[class*="prc-dsc"]',
+            '[class*="discounted"]', '.new-price',
+            'span[class*="prc"]',
+        ]:
             e = elem.query_selector(sel)
             if e:
                 price = self._parse_price(e.text_content())
@@ -844,7 +872,13 @@ class TrendyolScraper:
                     break
 
         if s['price'] <= 0:
-            s['price'] = self._parse_price(elem.text_content())
+            full_text = elem.text_content() or ''
+            matches = re.findall(r'\b\d{1,5}[.,]\d{2}\b', full_text)
+            for m in matches:
+                val = self._parse_price(m)
+                if 1 < val < 100000:
+                    s['price'] = val
+                    break
 
         # ── Eski/liste fiyatı ──────────────────────────────────────────────
         for sel in ['.old-price', '[class*="old-price"]', '[class*="prc-org"]']:
@@ -856,12 +890,19 @@ class TrendyolScraper:
                     break
 
         # ── Rating ────────────────────────────────────────────────────────
-        for sel in ['.score-badge', '[class*="score-badge"]', '[class*="rating"]']:
+        for sel in [
+            '[data-testid="seller-score"]',
+            '[class*="merchant-header-seller-score"]',
+            '.score-badge',
+            '[class*="score-badge"]',
+            '[class*="rating"]',
+        ]:
             e = elem.query_selector(sel)
             if e:
                 try:
                     s['rating'] = float(e.text_content().strip().replace(',', '.'))
-                    break
+                    if s['rating'] > 0:
+                        break
                 except:
                     pass
 
@@ -874,6 +915,11 @@ class TrendyolScraper:
             '[class*="coupon-text"]',
             '[class*="coupon"] span',
             'span:has-text("Kupon")',
+            # Trendyol diğer satıcılar paneli — hit-coupon-container yapısı
+            '[class*="hit-coupon-container"] p[class*="coupon-text"]',
+            '[class*="hit-coupon-container"] .coupon-text',
+            '[class*="small-coupon-left"] p',
+            '[data-testid="coupon-left"] p',
         ]
         for sel in coupon_selectors:
             try:
@@ -895,6 +941,11 @@ class TrendyolScraper:
             '[class*="sepette"]',
             'span:has-text("Sepette %")',
             'div:has-text("Sepette %")',
+            # Trendyol diğer satıcılar paneli — info-text class'ı
+            '[class*="info-text"]',
+            'p[class*="info-text"]',
+            # campaign-price içindeki indirim metni
+            '[class*="campaign-price-info"] [class*="info-text"]',
         ]
         for sel in basket_selectors:
             try:
@@ -908,14 +959,18 @@ class TrendyolScraper:
                 continue
 
         # "Sepette X TL" direkt fiyatı yakala
-        # Panel kartında yeşil renkte "Sepette 1.596 TL" gösteriyor
+        # Panel kartında yeşil renkte "Sepette 1.505,75 TL" gösteriyor
         basket_price_selectors = [
             '[class*="basket-price"]',
             '[class*="cart-price"]',
             'span[class*="prc"][class*="basket"]',
-            # Yeşil renk genellikle ayrı bir class ile gösteriliyor
             'span[class*="green"][class*="prc"]',
             'span[class*="prc-grn"]',
+            # Trendyol diğer satıcılar paneli — campaign-price-wrapper yapısı
+            '[class*="campaign-price-wrapper"] .new-price',
+            '[class*="campaign-price-wrapper"] p.new-price',
+            '[class*="campaign-price-content"] .new-price',
+            '.campaign-price-content p.new-price',
         ]
         for sel in basket_price_selectors:
             try:

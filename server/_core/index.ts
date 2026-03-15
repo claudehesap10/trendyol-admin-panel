@@ -114,6 +114,30 @@ async function startServer() {
       res.status(500).json({ error: "Failed to fetch reports" });
     }
   });
+
+  // Comparison API Proxy (Python'a yönlendirme)
+  app.get("/api/reports/compare", async (req, res) => {
+    try {
+      const showAll = req.query.show_all === "true";
+      const pythonResponse = await fetch(
+        `http://localhost:8000/api/reports/compare?show_all=${showAll}`
+      );
+      
+      if (!pythonResponse.ok) {
+        const errorText = await pythonResponse.text();
+        throw new Error(`Python service error: ${pythonResponse.status} - ${errorText}`);
+      }
+
+      const result = await pythonResponse.json();
+      res.json(result);
+    } catch (error) {
+      console.error("Comparison proxy error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Karşılaştırma servisine ulaşılamıyor. Python API'nin ayakta olduğundan emin olun." 
+      });
+    }
+  });
   
   // tRPC API
   app.use(

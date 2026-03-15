@@ -115,10 +115,13 @@ class NotificationService:
                             prod_name = prod_name[:42] + "..."
                         
                         if key == "new_competitor":
-                            line = f"• {prod_name} — {item['seller']} ₺{item['new_price']}\n"
+                            line = f"• <a href='{item['url']}'>{prod_name}</a>\n"
+                            line += f"  Barkod: {item['barcode'] or '-'}\n"
+                            line += f"  Satıcı: {item['seller']} ₺{item['new_price']}\n"
                         else:
                             prefix = "+" if item['status'] == "Zam" else ""
-                            line = (f"• {prod_name}\n"
+                            line = (f"• <a href='{item['url']}'>{prod_name}</a>\n"
+                                   f"  Barkod: {item['barcode'] or '-'}\n"
                                    f"  {item['seller']} ₺{item['old_price'] or '?'} → ₺{item['new_price']} ({prefix}{item['percent']}%)\n")
                         section += line
                     sections.append(section)
@@ -193,10 +196,12 @@ class NotificationService:
                     <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; margin-bottom: 20px;">
                         <tr style="background-color: #f8f9fa;">
                             <th>Ürün Adı</th>
+                            <th>Barkod</th>
                             <th>Satıcı</th>
                             <th>Eski Fiyat</th>
                             <th>Yeni Fiyat</th>
                             <th>Değişim</th>
+                            <th>Link</th>
                         </tr>
                     """
                     for item in items:
@@ -204,10 +209,12 @@ class NotificationService:
                         html_body += f"""
                         <tr>
                             <td>{item['product']}</td>
+                            <td>{item['barcode'] or '-'}</td>
                             <td>{item['seller']}</td>
                             <td>₺{item['old_price'] or '-'}</td>
                             <td><b>₺{item['new_price']}</b></td>
                             <td style="color: {color}">{prefix}{item['percent']}%</td>
+                            <td><a href="{item['url']}">Git</a></td>
                         </tr>
                         """
                     html_body += "</table>"

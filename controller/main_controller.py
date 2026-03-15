@@ -141,7 +141,11 @@ class MainController:
                 return False
             
             logger.info(f"📦 {len(products)} benzersiz ürün çekildi")
-            
+
+            if self.config.TEST_LIMIT > 0:
+                products = products[:self.config.TEST_LIMIT]
+                logger.info(f"🧪 Test modu: ilk {self.config.TEST_LIMIT} ürün işlenecek")
+
             # Her ürün için satıcıları çek — browser bir kez açılır, tüm ürünlerde kullanılır
             products_with_sellers = []
             from playwright.sync_api import sync_playwright

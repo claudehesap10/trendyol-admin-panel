@@ -61,8 +61,12 @@ class ReportComparisonService:
     def _read_excel_from_url(self, url: str) -> pd.DataFrame:
         """URL'den Excel dosyasını indirip pandas DataFrame olarak döner"""
         try:
+            # GitHub API'den asset indirmek için gerekli başlıklar
+            headers = self.github_helper.headers.copy()
+            headers["Accept"] = "application/octet-stream"
+            
             with httpx.Client() as client:
-                response = client.get(url, follow_redirects=True)
+                response = client.get(url, headers=headers, follow_redirects=True)
                 response.raise_for_status()
                 
                 # io.BytesIO ile belleğe al
@@ -72,14 +76,19 @@ class ReportComparisonService:
                 df = pd.read_excel(excel_data, skiprows=3)
                 
                 # Gerekli kolonları temizle ve hazırla
-                required_cols = ["Ürün Adı", "Satıcı", "Son Fiyat (TL)"]
+                required_cols = ["Ürün Adı", "Ürün Linki", "Satıcı", "Son Fiyat (TL)"]
                 for col in required_cols:
                     if col not in df.columns:
                         logger.error(f"❌ Eksik kolon: {col}")
                         return None
                 
+                # Barkod kolonu eski raporlarda olmayabilir, varsa al yoksa boş ekle
+                if "Barkod" not in df.columns:
+                    df["Barkod"] = ""
+                
                 # Veriyi temizle ve sadece gerekli kolonları al
-                df = df[required_cols].dropna(subset=["Ürün Adı", "Satıcı"])
+                final_cols = required_cols + ["Barkod"]
+                df = df[final_cols].dropna(subset=["Ürün Adı", "Satıcı"])
                 
                 # Veriyi tekilleştir (Mükerrer kayıtları temizle)
                 df = df.drop_duplicates(subset=["Ürün Adı", "Satıcı"], keep="first")
@@ -141,6 +150,8 @@ class ReportComparisonService:
             if not only_changes or status != "Sabit":
                 changes.append({
                     "product": row['Ürün Adı'],
+                    "barcode": row.get('Barkod', ''),
+                    "url": row.get('Ürün Linki', ''),
                     "seller": row['Satıcı'],
                     "new_price": float(new_price),
                     "old_price": float(old_price) if not pd.isna(old_price) else None,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
-import { ChevronDown, ChevronUp, Download, RefreshCw, ExternalLink, Star, Tag as TagIcon, ShoppingCart, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, RefreshCw, ExternalLink, Star, Tag as TagIcon, ShoppingCart, X, Filter, TrendingUp } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ interface ReportData {
   "Son Fiyat (TL)"?: number;
   "Rating"?: number;
   "Notlar"?: string;
+  "Barkod"?: string | number;
 }
 
 interface SellerInfo {
@@ -45,6 +46,7 @@ interface GroupedProduct {
   buyBoxPrice: number;
   buyBoxSeller: string;
   buyBoxRating: number;
+  barcode: string;
   allSellers: SellerInfo[];
 }
 
@@ -86,9 +88,20 @@ export default function Reports() {
         isBuyBox: false,
       };
       if (!groups.has(productName)) {
-        groups.set(productName, { productName, productLink, buyBoxPrice: 0, buyBoxSeller: "", buyBoxRating: 0, allSellers: [seller] });
+        groups.set(productName, { 
+          productName, 
+          productLink, 
+          buyBoxPrice: 0, 
+          buyBoxSeller: "", 
+          buyBoxRating: 0, 
+          barcode: String(item["Barkod"] || ""),
+          allSellers: [seller] 
+        });
       } else {
         const group = groups.get(productName)!;
+        if (!group.barcode && item["Barkod"]) {
+          group.barcode = String(item["Barkod"]);
+        }
         const exists = group.allSellers.find(s => s.sellerName === seller.sellerName && s.finalPrice === seller.finalPrice);
         if (!exists) group.allSellers.push(seller);
       }
@@ -133,6 +146,7 @@ export default function Reports() {
       const q = searchText.toLowerCase();
       filtered = filtered.filter(p =>
         p.productName.toLowerCase().includes(q) ||
+        p.barcode.toLowerCase().includes(q) ||
         p.allSellers.some(s => s.sellerName.toLowerCase().includes(q))
       );
     }
@@ -315,142 +329,163 @@ export default function Reports() {
   ];
 
   return (
-    <div className="reports-wrapper p-3 md:p-6">
-      <Card>
-        <CardHeader className="pb-3 px-4 md:px-6">
-          <CardTitle className="flex items-center gap-2 text-lg md:text-2xl">
-            <span>📊</span>
-            Trendyol Fiyat Raporları
-          </CardTitle>
-        </CardHeader>
+    <div className="reports-wrapper min-h-screen bg-[#f9fafb]">
+      <div className="reports-container">
+        <Card className="border-none shadow-none bg-transparent">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 px-2">
+            <div className="space-y-1">
+              <h1 className="text-2xl md:text-3xl font-extrabold text-zinc-900 tracking-tight">Fiyat Raporları</h1>
+              {lastScanTime && (
+                <div className="flex items-center gap-1.5 text-zinc-500">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs font-medium">Son tarama: {lastScanTime}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="outline" 
+                onClick={fetchReport} 
+                disabled={loading} 
+                className="flex-1 sm:flex-none h-10 px-5 bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition-all shadow-sm rounded-xl"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <span className="text-sm font-semibold">Yenile</span>
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={downloadExcel} 
+                className="flex-1 sm:flex-none h-10 px-5 bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition-all shadow-sm rounded-xl"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                <span className="text-sm font-semibold">Excel İndir</span>
+              </Button>
+              <Button 
+                variant="default" 
+                onClick={() => window.location.href = "/analysis"} 
+                className="flex-1 sm:flex-none h-10 px-5 bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md rounded-xl border-none"
+              >
+                <TrendingUp className="mr-2 h-4 w-4" />
+                <span className="text-sm font-semibold">Fiyat Analizi</span>
+              </Button>
+            </div>
+          </div>
 
         <CardContent className="space-y-4 px-3 md:px-6">
 
-          {/* ══ İSTATİSTİK KARTLARI ══════════════════════════════════════════ */}
-          <div className="flex flex-col gap-3 md:grid md:grid-cols-4">
-
-            {/* Buy Box Durumu */}
-            <div className="md:col-span-1 border rounded-xl p-4 bg-emerald-50 border-emerald-200">
-              <p className="text-xs text-emerald-700 font-medium mb-2.5">Buy Box Durumu</p>
-              {/* Mobilde yatay, masaüstünde dikey */}
-              <div className="flex flex-row flex-wrap gap-x-4 gap-y-2 md:flex-col">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
-                  </div>
-                  <span className="text-xs text-emerald-700">Kazandım:</span>
-                  <span className="text-sm font-bold text-emerald-700">{buyBoxStats.buyBoxMine}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm leading-none">⚠️</span>
-                  <span className="text-xs text-amber-700">Riskli:</span>
-                  <span className="text-sm font-bold text-amber-700">{buyBoxStats.buyBoxRisky}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center shrink-0">
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                  </div>
-                  <span className="text-xs text-red-700">Kaybettim:</span>
-                  <span className="text-sm font-bold text-red-700">{buyBoxStats.buyBoxLost}</span>
-                </div>
+          {/* ══ BUY BOX DURUMU KONTEYNERI ══════════════════════════════════════════ */}
+          <div className="bg-white border border-zinc-200 rounded-3xl p-4 md:p-8 shadow-sm mb-8">
+            <div className="flex items-center gap-2 mb-6">
+              <ShoppingCart className="h-4 w-4 text-zinc-400" />
+              <div className="text-[11px] font-bold text-zinc-400 tracking-widest uppercase">
+                BUY BOX ANALİZİ — {mySellerName}
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-8">
+              {/* Kazandım Card */}
+              <div className="bg-[#f0fdf4] border border-emerald-100 rounded-2xl p-6 text-center transition-transform hover:scale-[1.02]">
+                <div className="text-5xl font-black text-emerald-700 mb-1">{buyBoxStats.buyBoxMine}</div>
+                <div className="text-sm font-bold text-emerald-600/80 tracking-wide uppercase">Kazandım</div>
+              </div>
+              
+              {/* Riskli Card */}
+              <div className="bg-[#fffbeb] border border-amber-100 rounded-2xl p-6 text-center transition-transform hover:scale-[1.02]">
+                <div className="text-5xl font-black text-amber-700 mb-1">{buyBoxStats.buyBoxRisky}</div>
+                <div className="text-sm font-bold text-amber-600/80 tracking-wide uppercase">Riskli</div>
+              </div>
+              
+              {/* Kaybettim Card */}
+              <div className="bg-[#fef2f2] border border-red-100 rounded-2xl p-6 text-center transition-transform hover:scale-[1.02]">
+                <div className="text-5xl font-black text-red-700 mb-1">{buyBoxStats.buyBoxLost}</div>
+                <div className="text-sm font-bold text-red-600/80 tracking-wide uppercase">Kaybettim</div>
               </div>
             </div>
 
-            {/* 3 bilgi kutusu */}
-            <div className="md:col-span-3 border rounded-xl overflow-hidden grid grid-cols-3">
-              {[
-                { dot: 'bg-orange-400', label: 'Son Tarama', value: lastScanTime || '—', sub: null },
-                { dot: 'bg-blue-400', label: 'Toplam Ürün', value: `${groupedProducts.length}`, sub: buyBoxStats.notMySeller > 0 ? `${buyBoxStats.notMySeller} takip` : null },
-                { dot: 'bg-emerald-400', label: 'Satıcı Kaydı', value: `${data.length}`, sub: null },
-              ].map((item, i) => (
-                <div key={i} className={`flex items-center gap-2 px-3 sm:px-5 py-3 sm:py-4 ${i < 2 ? 'border-r' : ''}`}>
-                  <div className={`w-1.5 h-1.5 rounded-full ${item.dot} shrink-0 hidden sm:block`} />
-                  <div className="min-w-0">
-                    <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 whitespace-nowrap">{item.label}</p>
-                    <p className="text-xs sm:text-sm font-medium leading-tight truncate">{item.value}</p>
-                    {item.sub && <p className="text-[9px] sm:text-[10px] text-muted-foreground">{item.sub}</p>}
-                  </div>
+            {/* PROGRESS BAR */}
+            {groupedProducts.length > 0 && (
+              <div className="space-y-3">
+                <div className="relative h-3 w-full bg-zinc-100 rounded-full overflow-hidden flex shadow-inner">
+                  <div 
+                    className="h-full bg-emerald-500 transition-all duration-700 ease-out" 
+                    style={{ width: `${(buyBoxStats.buyBoxMine / groupedProducts.length) * 100}%` }}
+                  />
+                  <div 
+                    className="h-full bg-amber-400 transition-all duration-700 ease-out" 
+                    style={{ width: `${(buyBoxStats.buyBoxRisky / groupedProducts.length) * 100}%` }}
+                  />
+                  <div 
+                    className="h-full bg-red-500 transition-all duration-700 ease-out" 
+                    style={{ width: `${(buyBoxStats.buyBoxLost / groupedProducts.length) * 100}%` }}
+                  />
                 </div>
-              ))}
-            </div>
+                <div className="flex justify-between text-[10px] font-bold text-zinc-400 px-1 uppercase tracking-tighter">
+                  <span>Toplam {groupedProducts.length} Ürün Analiz Edildi</span>
+                  <span className="text-emerald-600">% {Math.round((buyBoxStats.buyBoxMine / groupedProducts.length) * 100)} Başarı</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ══ KONTROL PANELİ ════════════════════════════════════════════════ */}
           <div className="flex flex-col gap-3">
 
-            {/* Butonlar satırı */}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={fetchReport} disabled={loading} size="sm" className="h-8">
-                <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                <span className="text-xs">Yenile</span>
-              </Button>
-              <Button variant="outline" onClick={downloadExcel} size="sm" className="h-8">
-                <Download className="mr-1.5 h-3.5 w-3.5" />
-                <span className="text-xs hidden sm:inline">Excel İndir</span>
-                <span className="text-xs sm:hidden">Excel</span>
-              </Button>
-              <Button variant="outline" onClick={() => window.location.href = "/trend"} size="sm" className="h-8">
-                <span className="text-xs hidden sm:inline">Trend Analizi</span>
-                <span className="text-xs sm:hidden">Trend</span>
-              </Button>
-              {/* Satıcı adı — mobilde tam satır */}
-              <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Satıcım:</span>
-                <Input
-                  value={mySellerName}
-                  onChange={e => setMySellerName(e.target.value)}
-                  className="h-8 flex-1 sm:w-36 text-xs"
-                  placeholder="Satıcı adın..."
-                />
+
+            {/* Hızlı Filtreler */}
+            <div className="flex items-center gap-3 mb-1">
+              <div className="flex items-center gap-1.5 text-zinc-500 shrink-0">
+                <Filter className="h-3.5 w-3.5" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Hızlı Filtrele</span>
+              </div>
+              
+              <div className="flex gap-2 overflow-x-auto pb-0.5 -mx-1 px-1 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+                {quickFilters.map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setQuickFilter(prev => prev === f.id ? null : f.id)}
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-4 py-1.5 rounded-full border transition-all duration-200 shadow-sm whitespace-nowrap ${
+                      quickFilter === f.id
+                        ? `${f.activeColor} text-white scale-[1.02] shadow-md border-transparent`
+                        : `bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50`
+                    }`}
+                  >
+                    {f.icon}
+                    {f.label}
+                  </button>
+                ))}
+                
+                {quickFilter && (
+                  <button 
+                    onClick={() => setQuickFilter(null)}
+                    className="text-[11px] text-zinc-400 hover:text-zinc-600 font-medium px-2 py-1.5 transition-colors"
+                  >
+                    Temizle
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Hızlı Filtreler — yatay scroll */}
-            <div className="flex gap-2 overflow-x-auto pb-0.5 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-              {quickFilters.map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setQuickFilter(prev => prev === f.id ? null : f.id)}
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full border whitespace-nowrap shrink-0 transition-colors ${quickFilter === f.id
-                      ? `${f.activeColor} text-white`
-                      : `bg-background text-muted-foreground border-border ${f.hoverColor}`
-                    }`}
-                >
-                  {f.icon}
-                  {f.label}
-                  {f.count != null && f.count > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${quickFilter === f.id ? f.activeCountBg : f.countBg}`}>
-                      {f.count}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {/* Arama + Seçici Filtreler */}
-            <div className="flex flex-col gap-2">
-              <Input
-                placeholder="Ürün adı veya satıcı ile ara..."
-                value={searchText}
-                onChange={e => setSearchText(e.target.value)}
-                className="w-full h-9 text-sm"
-              />
-              <div className="flex gap-2">
-                <Select value={selectedProduct || "all"} onValueChange={val => setSelectedProduct(val === "all" ? "" : val)}>
-                  <SelectTrigger className="flex-1 h-9 text-xs sm:text-sm min-w-0">
-                    <SelectValue placeholder="Tüm Ürünler" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tüm Ürünler</SelectItem>
-                    {productNames.map(name => <SelectItem key={name} value={name}>{name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+            {/* Arama + Filtreleme Çubukları */}
+            <div className="flex flex-col lg:flex-row gap-4 mt-4 px-1">
+              <div className="relative flex-1 group">
+                <Input
+                  placeholder="Ürün adı, barkod veya rakip satıcı ile ara..."
+                  value={searchText}
+                  onChange={e => setSearchText(e.target.value)}
+                  className="w-full h-12 text-sm bg-white border-zinc-200 text-zinc-900 pl-11 rounded-2xl focus:ring-2 focus:ring-zinc-100 transition-all"
+                />
+                <svg className="absolute left-4 top-4 h-4 w-4 text-zinc-400 group-focus-within:text-zinc-600 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              
+              <div className="flex gap-3">
                 <Select value={selectedSeller || "all"} onValueChange={val => setSelectedSeller(val === "all" ? "" : val)}>
-                  <SelectTrigger className="flex-1 h-9 text-xs sm:text-sm min-w-0">
+                  <SelectTrigger className="w-full lg:w-60 h-12 bg-white border-zinc-200 text-zinc-700 rounded-2xl shadow-sm px-4">
                     <SelectValue placeholder="Tüm Satıcılar" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tüm Satıcılar</SelectItem>
+                  <SelectContent className="bg-white border-zinc-200 text-zinc-700 rounded-xl shadow-xl">
+                    <SelectItem value="all">Tüm Rakipler</SelectItem>
                     {sellers.map(seller => <SelectItem key={seller} value={seller}>{seller}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -538,6 +573,7 @@ export default function Reports() {
                       </TableHead>
                       <TableHead className="w-10 px-2"></TableHead>
                       <TableHead className="text-left px-4">Ürün Adı</TableHead>
+                      <TableHead className="text-left px-4 w-[130px]">Barkod</TableHead>
                       <TableHead className="text-right px-4 cursor-pointer select-none hover:text-foreground" onClick={() => toggleSort("buyBoxPrice")}>
                         <div className="flex items-center justify-end gap-1">Buy Box Fiyat <SortIcon field="buyBoxPrice" /></div>
                       </TableHead>
@@ -594,6 +630,9 @@ export default function Reports() {
                                   </a>
                                 )}
                               </div>
+                            </TableCell>
+                            <TableCell className="px-4 text-xs text-zinc-500 font-mono">
+                              {product.barcode || "-"}
                             </TableCell>
                             <TableCell className="text-right px-4 font-semibold text-green-600">
                               ₺{product.buyBoxPrice.toFixed(2)}
@@ -821,7 +860,8 @@ export default function Reports() {
             </>
           )}
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

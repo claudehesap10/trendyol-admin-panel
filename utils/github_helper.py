@@ -54,7 +54,7 @@ class GitHubHelper:
                         reports.append({
                             "tag": release.get("tag_name"),
                             "published_at": release.get("published_at"),
-                            "download_url": excel_asset["browser_download_url"],
+                            "download_url": excel_asset["url"],  # Browser URL yerine API URL'i kullanıyoruz (token ile indirmek için)
                             "filename": excel_asset["name"]
                         })
                 

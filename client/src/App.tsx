@@ -5,6 +5,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Reports from "@/pages/Reports";
 import TrendAnalysis from "@/pages/TrendAnalysis";
+import Analysis from "@/pages/Analysis";
 import NotFound from "@/pages/NotFound";
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
             <Route path={"/"} component={Reports} />
             <Route path={"/reports"} component={Reports} />
             <Route path={"/trend"} component={TrendAnalysis} />
+            <Route path={"/analysis"} component={Analysis} />
             <Route component={NotFound} />
           </Switch>
         </TooltipProvider>

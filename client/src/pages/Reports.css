@@ -2,16 +2,35 @@
 .reports-wrapper {
   width: 100%;
   min-height: 100vh;
-  background: hsl(var(--background));
+  background-color: #f9fafb;
+  color: #111827;
+  padding: 1rem;
 }
 
-/* Ürün gruplaması için arka plan renkleri (Opsiyonel) */
-.product-group-even {
-  background-color: rgba(0, 0, 0, 0.01);
+@media (min-width: 768px) {
+  .reports-wrapper {
+    padding: 2rem;
+  }
 }
 
-.product-group-odd {
-  background-color: rgba(0, 0, 0, 0.03);
+.reports-wrapper .rounded-xl, 
+.reports-wrapper .rounded-2xl {
+  border-color: #e5e7eb;
+}
+
+/* Scrollbar Gizleme */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Masaüstü Kart Boşlukları */
+.reports-container {
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 /* Responsive düzenlemeler */

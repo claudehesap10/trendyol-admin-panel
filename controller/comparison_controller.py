@@ -37,7 +37,7 @@ async def compare_reports(show_all: bool = False):
         }
         
     except Exception as e:
-        logger.error(f"❌ ComparisonController hata: {e}")
+        logger.error(f"❌ ComparisonController hata: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # Not: Bu router'ın ana FastAPI uygulamasında (app.include_router) 

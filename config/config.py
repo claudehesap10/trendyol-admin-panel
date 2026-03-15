@@ -43,6 +43,7 @@ class Config:
     SCAN_TIMEOUT: int = int(os.getenv("SCAN_TIMEOUT", "300"))  # 5 dakika
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
     RETRY_DELAY: int = int(os.getenv("RETRY_DELAY", "5"))  # saniye
+    TEST_LIMIT: int = int(os.getenv("TEST_LIMIT", "0"))  # 0 = tüm ürünler
     
     # Çıktı Ayarları
     OUTPUT_DIR: str = os.getenv("OUTPUT_DIR", "reports")

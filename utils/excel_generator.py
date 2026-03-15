@@ -94,7 +94,7 @@ class ExcelGenerator:
         ws['A1'] = f"Trendyol Satıcı Analiz Raporu - {store_name}"
         ws['A1'].font = Font(size=14, bold=True, color="FFFFFF")
         ws['A1'].fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        ws.merge_cells('A1:I1')
+        ws.merge_cells('A1:J1')
         ws['A1'].alignment = Alignment(horizontal="center", vertical="center")
         
         # Tarih bilgisi
@@ -104,6 +104,7 @@ class ExcelGenerator:
         # Sütun başlıkları
         headers = [
             "Ürün Adı",
+            "Barkod",
             "Ürün Linki",
             "Satıcı",
             "Orijinal Fiyat (TL)",
@@ -139,26 +140,29 @@ class ExcelGenerator:
                 actual_name = seller.get('product_name', product_name)
                 ws.cell(row=row, column=1).value = actual_name
                 
+                # Barkod
+                ws.cell(row=row, column=2).value = seller.get('barcode', '')
+
                 # Ürün Linki
-                ws.cell(row=row, column=2).value = product.get('url', '')
+                ws.cell(row=row, column=3).value = product.get('url', '')
                 
                 # Satıcı adı
-                ws.cell(row=row, column=3).value = seller.get('name', '')
+                ws.cell(row=row, column=4).value = seller.get('name', '')
                 
                 # Orijinal fiyat
-                ws.cell(row=row, column=4).value = seller.get('price', 0)
+                ws.cell(row=row, column=5).value = seller.get('price', 0)
                 
                 # Kupon İndirimi
-                ws.cell(row=row, column=5).value = seller.get('coupon', '')
+                ws.cell(row=row, column=6).value = seller.get('coupon', '')
                 
                 # Sepette İndirimi
-                ws.cell(row=row, column=6).value = seller.get('basket_discount', '')
+                ws.cell(row=row, column=7).value = seller.get('basket_discount', '')
                 
                 # Son Fiyat (Net Fiyat)
-                ws.cell(row=row, column=7).value = seller.get('net_price', 0)
+                ws.cell(row=row, column=8).value = seller.get('net_price', 0)
                 
                 # Rating
-                ws.cell(row=row, column=8).value = seller.get('rating', 0)
+                ws.cell(row=row, column=9).value = seller.get('rating', 0)
                 
                 # Notlar
                 notes = []
@@ -166,10 +170,10 @@ class ExcelGenerator:
                     notes.append(f"Kupon: {seller.get('coupon')}")
                 if seller.get('basket_discount'):
                     notes.append(f"Sepette: {seller.get('basket_discount')}")
-                ws.cell(row=row, column=9).value = ' | '.join(notes)
+                ws.cell(row=row, column=10).value = ' | '.join(notes)
                 
                 # Hücre formatı
-                for col in range(1, 10):
+                for col in range(1, 11):
                     cell = ws.cell(row=row, column=col)
                     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                     cell.border = Border(
@@ -180,27 +184,28 @@ class ExcelGenerator:
                     )
                     
                     # Sayı formatı
-                    if col in [4, 7, 8]:
+                    if col in [5, 8, 9]:
                         cell.number_format = '0.00'
                 
                 row += 1
         
         # Sütun genişliği ayarla
         ws.column_dimensions['A'].width = 35
-        ws.column_dimensions['B'].width = 50
-        ws.column_dimensions['C'].width = 20
-        ws.column_dimensions['D'].width = 18
+        ws.column_dimensions['B'].width = 18
+        ws.column_dimensions['C'].width = 50
+        ws.column_dimensions['D'].width = 20
         ws.column_dimensions['E'].width = 18
         ws.column_dimensions['F'].width = 18
         ws.column_dimensions['G'].width = 18
-        ws.column_dimensions['H'].width = 12
-        ws.column_dimensions['I'].width = 30
+        ws.column_dimensions['H'].width = 18
+        ws.column_dimensions['I'].width = 12
+        ws.column_dimensions['J'].width = 30
     
     def _add_filters(self, ws) -> None:
         """Otomatik filtre ekle"""
         try:
             # Başlık satırına filtre ekle (satır 4)
-            ws.auto_filter.ref = f"A4:I{ws.max_row}"
+            ws.auto_filter.ref = f"A4:J{ws.max_row}"
             logger.info("   ✅ Otomatik filtre eklendi")
         except Exception as e:
             logger.warning(f"⚠️ Filtre ekleme hatası: {e}")
@@ -243,13 +248,13 @@ class ExcelGenerator:
                         
                         # En ucuz fiyat - yeşil
                         if net_price == min_price and min_price > 0:
-                            cell = ws.cell(row=row, column=7)
+                            cell = ws.cell(row=row, column=8)
                             cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
                             cell.font = Font(bold=True, color="006100")
                         
                         # En pahalı fiyat - kırmızı
                         elif net_price == max_price and max_price > 0:
-                            cell = ws.cell(row=row, column=7)
+                            cell = ws.cell(row=row, column=8)
                             cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                             cell.font = Font(bold=True, color="9C0006")
                         
