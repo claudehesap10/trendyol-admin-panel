@@ -142,14 +142,24 @@ class MainController:
             
             logger.info(f"📦 {len(products)} benzersiz ürün çekildi")
             
-            # Her ürün için satıcıları çek
+            # Her ürün için satıcıları çek — browser bir kez açılır, tüm ürünlerde kullanılır
             products_with_sellers = []
-            for i, product in enumerate(products, 1):
-                logger.info(f"[{i}/{len(products)}] İşleniyor: {product['name']}")
-                sellers = self.scraper.fetch_sellers_for_product(product['url'], product['name'])
-                product['sellers'] = sellers
-                products_with_sellers.append(product)
-                logger.info(f"  ✓ {len(sellers)} satıcı bulundu")
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser, context = self.scraper._make_browser_context(pw)
+                try:
+                    for i, product in enumerate(products, 1):
+                        logger.info(f"[{i}/{len(products)}] İşleniyor: {product['name']}")
+                        sellers = self.scraper.fetch_sellers_for_product(
+                            product['url'],
+                            product['name'],
+                            context
+                        )
+                        product['sellers'] = sellers
+                        products_with_sellers.append(product)
+                        logger.info(f"  ✓ {len(sellers)} satıcı bulundu")
+                finally:
+                    browser.close()
             
             # Toplam istatistikler
             total_sellers = sum(len(p.get('sellers', [])) for p in products_with_sellers)

@@ -194,7 +194,7 @@ class TrendyolScraper:
                 logger.info(f"📄 Mağaza sayfası açılıyor: {url}")
 
                 page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                time.sleep(3)
+                time.sleep(1.5)
 
                 # Toplam ürün sayısını oku (varsa) — hedef kart sayısı için
                 total_expected = self._read_total_product_count(page)
@@ -415,34 +415,40 @@ class TrendyolScraper:
     # SATICI ÇEKME — Ana metod
     # ──────────────────────────────────────────────────────────────────────────
 
-    def fetch_sellers_for_product(self, product_url: str, product_name: str = "") -> List[Dict]:
+    def fetch_sellers_for_product(self, product_url: str, product_name: str = "", context=None) -> List[Dict]:
         try:
             logger.info(f"🔍 {product_name or product_url[:60]}")
-            from playwright.sync_api import sync_playwright
 
             clean_url = self._clean_product_url(product_url)
             sellers = []
             actual_name = product_name
 
-            with sync_playwright() as p:
-                browser, context = self._make_browser_context(p)
-                page = context.new_page()
+            # Dışarıdan context verilmişse onu kullan, yoksa kendi aç
+            own_browser = None
+            own_pw = None
+            if context is None:
+                from playwright.sync_api import sync_playwright
+                own_pw = sync_playwright().start()
+                own_browser, context = self._make_browser_context(own_pw)
 
-                # Görsel ve gereksiz kaynakları engelle
-                page.route(
-                    "**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
-                    lambda route: route.abort()
-                )
-                page.route("**/googletagmanager**", lambda route: route.abort())
-                page.route("**/google-analytics**", lambda route: route.abort())
-                page.route("**/hotjar**", lambda route: route.abort())
-                page.route("**/facebook**", lambda route: route.abort())
+            page = context.new_page()
 
+            # Görsel ve gereksiz kaynakları engelle
+            page.route(
+                "**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
+                lambda route: route.abort()
+            )
+            page.route("**/googletagmanager**", lambda route: route.abort())
+            page.route("**/google-analytics**", lambda route: route.abort())
+            page.route("**/hotjar**", lambda route: route.abort())
+            page.route("**/facebook**", lambda route: route.abort())
+
+            try:
                 loaded = False
                 for attempt in range(self.max_retries):
                     try:
                         page.goto(clean_url, wait_until='domcontentloaded', timeout=60000)
-                        time.sleep(3)
+                        time.sleep(1.5)
                         loaded = True
                         break
                     except Exception as e:
@@ -451,7 +457,6 @@ class TrendyolScraper:
                             time.sleep(self.retry_delay)
 
                 if not loaded:
-                    browser.close()
                     return []
 
                 # Ürün adı
@@ -463,7 +468,7 @@ class TrendyolScraper:
                             actual_name = n
                             break
 
-                # 1. Buy Box satıcısı (ana sayfa)
+                # 1. Buy Box satıcısı
                 buy_box = self._extract_buy_box_seller(page)
                 if buy_box:
                     sellers.append(buy_box)
@@ -475,7 +480,22 @@ class TrendyolScraper:
                     sellers.extend(others)
                     logger.info(f"  ✓ Panelden {len(others)} satıcı eklendi")
 
-                browser.close()
+            finally:
+                page.close()
+                if own_browser:
+                    own_browser.close()
+                if own_pw:
+                    own_pw.stop()
+
+            for s in sellers:
+                s['product_name'] = actual_name
+
+            logger.info(f"  ✅ Toplam {len(sellers)} satıcı: {[s['name'] for s in sellers]}")
+            return sellers
+
+        except Exception as e:
+            logger.error(f"❌ Satıcı çekme hatası: {e}")
+            return []
 
             for s in sellers:
                 s['product_name'] = actual_name
