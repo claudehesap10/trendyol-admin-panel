@@ -176,23 +176,11 @@ class MainController:
             
             # Excel raporu oluştur
             report_path = self.excel_gen.generate_report(products_with_sellers)
-            
-            # Raporu Telegram'a gönder (ZORUNLU)
-            if self.telegram:
-                scan_time = self._get_elapsed_time()
-                
-                if not self.telegram.send_scan_report(report_path, total_sellers, scan_time):
-                    logger.error("❌ Telegram'a rapor gönderilemedi!")
-                    return False
-            
-            # Raporu email ile gönder
+
+            # Fiyat Değişim Raporu için Telegram/Mail bildirimlerini kaldırıldı.
+            # (Rapor dosyası yine üretilir ve diskte saklanır.)
             self.report_path = report_path
-            if self.email_sender:
-                if self.email_sender.send_report(report_path):
-                    logger.info("✅ Email gönderimi başarılı")
-                else:
-                    logger.warning("⚠️ Email gönderilemedi (opsiyonel)")
-            
+
             # 🔥 YENİ: Fiyat takibi ve uyarıları gönder
             if self.price_monitor:
                 self._check_price_alerts(products_with_sellers)
@@ -230,15 +218,23 @@ class MainController:
             # Özet oluştur
             summary = self.price_monitor.get_summary()
             logger.info(summary)
-            
-            # Bildirim gönder
+
+            # %5+ ucuz ürünler için aksiyon maili
+            too_cheap_html = self.price_monitor.get_too_cheap_html()
+            if too_cheap_html and self.email_sender:
+                self.email_sender.send_html_email(
+                    self.price_monitor.get_too_cheap_email_subject(),
+                    too_cheap_html,
+                )
+
+            # (Telegram / diğer bildirim akışları burada intentionally yok)
             if alerts or advantages:
                 logger.info(f"🔍 Analiz Sonucu: {len(alerts)} Uyarı, {len(advantages)} Avantaj tespit edildi.")
             else:
                 logger.info("ℹ️ Özel durum yok, bildirim gönderilmedi")
             
         except Exception as e:
-            logger.error(f"❌ Fiyat kontrol hatası: {e}")
+            logger.error(f"❌ Fiyat uyarı kontrol hatası: {e}")
     
     
     def _send_success_notification(self) -> None:

@@ -86,14 +86,16 @@ class PriceAdvantage:
     """Fiyat avantajı bilgileri (Biz rakipten ucuzuz)"""
     product_name: str
     product_url: str
+    barcode: str  # Ürün barkodu (varsa)
     my_price: float
     competitor_name: str
     competitor_price: float
     price_difference: float
     price_difference_percent: float
-    
+    is_too_cheap: bool = False  # Rakibe göre %5+ ucuz (aksiyon gerektiren durum)
+
     def __str__(self) -> str:
-        return (
+        base = (
             f"✅ FİYAT AVANTAJI!\n\n"
             f"📦 Ürün: {self.product_name}\n"
             f"🔗 Link: {self.product_url}\n\n"
@@ -101,15 +103,40 @@ class PriceAdvantage:
             f"🏪 Rakip: {self.competitor_name}\n"
             f"💸 Rakip Fiyatı: {self.competitor_price:.2f} ₺\n\n"
             f"📈 Fark: {self.price_difference:.2f} ₺ ({self.price_difference_percent:.1f}%)\n"
-            f"🎉 {self.competitor_name}'dan {self.price_difference:.2f} ₺ daha ucuzsunuz!"
         )
-    
+        if self.is_too_cheap:
+            return base + (
+                f"⚠️ Çok ucuzsunuz! Rakibe göre %{self.price_difference_percent:.1f} daha düşük fiyat. "
+                f"Marj/BuyBox dengesini kontrol edin."
+            )
+        return base + f"🎉 {self.competitor_name}'dan {self.price_difference:.2f} ₺ daha ucuzsunuz!"
+
     def to_html(self) -> str:
         """HTML formatında avantaj"""
+        if self.is_too_cheap:
+            badge = "<span style=\"display:inline-block;background:#fee2e2;color:#991b1b;padding:4px 10px;border-radius:999px;font-weight:700;font-size:12px;\">ÇOK UCUZSUNUZ (%5+)</span>"
+            border = "#ef4444"
+            header_color = "#991b1b"
+            highlight_bg = "#fff1f2"
+            highlight_color = "#991b1b"
+            highlight_prefix = "⚠️"
+            highlight_text = (
+                f"Rakibe göre <b>%{self.price_difference_percent:.1f}</b> daha ucuzsunuz. "
+                f"Fiyatınızın maliyet/marj açısından doğruluğunu kontrol edin."
+            )
+        else:
+            badge = ""
+            border = "#4caf50"
+            header_color = "#2e7d32"
+            highlight_bg = "#c8e6c9"
+            highlight_color = "#1b5e20"
+            highlight_prefix = "🎉"
+            highlight_text = f"Harika! {self.competitor_name}'dan {self.price_difference:.2f} ₺ daha ucuzsunuz!"
+
         return f"""
-        <div style="background-color: #e8f5e9; border: 2px solid #4caf50; border-radius: 8px; padding: 20px; margin: 10px 0; font-family: Arial, sans-serif;">
-            <h2 style="color: #2e7d32; margin-top: 0;">✅ FİYAT AVANTAJI!</h2>
-            
+        <div style="background-color: #e8f5e9; border: 2px solid {border}; border-radius: 8px; padding: 20px; margin: 10px 0; font-family: Arial, sans-serif;">
+            <h2 style="color: {header_color}; margin-top: 0;">✅ FİYAT AVANTAJI! {badge}</h2>
+
             <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 10px 0;">
                 <h3 style="color: #333; margin-top: 0;">📦 Ürün Bilgisi</h3>
                 <p style="font-size: 16px; margin: 5px 0;"><strong>{self.product_name}</strong></p>
@@ -119,13 +146,13 @@ class PriceAdvantage:
                     </a>
                 </p>
             </div>
-            
+
             <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 10px 0;">
                 <h3 style="color: #333; margin-top: 0;">💰 Fiyat Karşılaştırması</h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <tr style="background-color: #f5f5f5;">
                         <td style="padding: 10px; border: 1px solid #ddd;"><strong>Sizin Fiyatınız</strong></td>
-                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-size: 18px; color: #2e7d32;">
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-size: 18px; color: {header_color};">
                             {self.my_price:.2f} ₺
                         </td>
                     </tr>
@@ -135,18 +162,18 @@ class PriceAdvantage:
                             {self.competitor_price:.2f} ₺
                         </td>
                     </tr>
-                    <tr style="background-color: #e8f5e9;">
+                    <tr style="background-color: {highlight_bg};">
                         <td style="padding: 10px; border: 1px solid #ddd;"><strong>Avantaj</strong></td>
-                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-size: 20px; font-weight: bold; color: #2e7d32;">
+                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right; font-size: 20px; font-weight: bold; color: {header_color};">
                             +{self.price_difference:.2f} ₺ ({self.price_difference_percent:.1f}%)
                         </td>
                     </tr>
                 </table>
             </div>
-            
-            <div style="background-color: #c8e6c9; padding: 12px; border-radius: 5px; margin-top: 15px;">
-                <p style="margin: 0; color: #1b5e20; font-weight: bold;">
-                    🎉 Harika! {self.competitor_name}'dan {self.price_difference:.2f} ₺ daha ucuzsunuz!
+
+            <div style="background-color: {highlight_bg}; padding: 12px; border-radius: 5px; margin-top: 15px;">
+                <p style="margin: 0; color: {highlight_color}; font-weight: bold;">
+                    {highlight_prefix} {highlight_text}
                 </p>
             </div>
         </div>
@@ -155,7 +182,7 @@ class PriceAdvantage:
 
 class PriceMonitor:
     """Fiyat takip servisi"""
-    
+
     def __init__(self, my_merchant_name: str, price_threshold: float = 0.01):
         """
         Args:
@@ -166,6 +193,7 @@ class PriceMonitor:
         self.price_threshold = price_threshold
         self.alerts: List[PriceAlert] = []  # Rakip bizden ucuz
         self.advantages: List[PriceAdvantage] = []  # Biz rakipten ucuz
+        self.too_cheap_advantages: List[PriceAdvantage] = []  # %5+ ucuz olduğumuz avantajlar
     
     def analyze_products(self, products_data: List[Dict]) -> Tuple[List[PriceAlert], List[PriceAdvantage]]:
         """
@@ -183,6 +211,7 @@ class PriceMonitor:
         
         self.alerts = []
         self.advantages = []
+        self.too_cheap_advantages = []
         
         # Ürünleri grupla (Ürün Adı'na göre)
         products_by_name: Dict[str, List[Dict]] = {}
@@ -244,6 +273,9 @@ class PriceMonitor:
         
         my_price = my_seller["price"]
         product_url = my_seller.get("Link", "")
+        product_barcode = (
+            str(my_seller.get("Barkod", "") or my_seller.get("barcode", "") or "").strip()
+        )
         
         # Rakipleri kontrol et
         for competitor in competitors:
@@ -278,19 +310,29 @@ class PriceMonitor:
             elif my_price < competitor_price:
                 price_diff = competitor_price - my_price
                 price_diff_percent = (price_diff / competitor_price) * 100
-                
+
+                is_too_cheap = price_diff_percent > 5.0
+
                 advantage = PriceAdvantage(
                     product_name=product_name,
                     product_url=product_url,
+                    barcode=product_barcode,
                     my_price=my_price,
                     competitor_name=competitor_name,
                     competitor_price=competitor_price,
                     price_difference=price_diff,
-                    price_difference_percent=price_diff_percent
+                    price_difference_percent=price_diff_percent,
+                    is_too_cheap=is_too_cheap,
                 )
-                
+
                 self.advantages.append(advantage)
-                logger.info(f"   ✅ {product_name[:40]}... - {competitor_name}'dan {price_diff:.2f}₺ ucuz!")
+                if is_too_cheap:
+                    self.too_cheap_advantages.append(advantage)
+                    logger.warning(
+                        f"   ⚠️ {product_name[:40]}... - {competitor_name}'dan %{price_diff_percent:.1f} daha ucuzsunuz (çok ucuz!)"
+                    )
+                else:
+                    logger.info(f"   ✅ {product_name[:40]}... - {competitor_name}'dan {price_diff:.2f}₺ ucuz!")
     
     def get_summary(self) -> str:
         """Özet rapor oluştur"""
@@ -447,3 +489,65 @@ class PriceMonitor:
             """
         
         return html
+    
+    def get_too_cheap_email_subject(self) -> str:
+        """%5+ ucuz ürünler için email başlığı"""
+        return "⚠️ Çok Ucuzsunuz: Rakibe göre %5+ fiyat farkı"
+
+    def get_too_cheap_html(self) -> str:
+        """%5+ ucuz ürünleri aksiyon maili olarak HTML döner"""
+        if not self.too_cheap_advantages:
+            return ""
+
+        rows = "".join(
+            [
+                f"""
+                <tr>
+                  <td style=\"padding:10px;border:1px solid #e5e7eb;\">{adv.product_name}</td>
+                  <td style=\"padding:10px;border:1px solid #e5e7eb;\"><a href=\"{adv.product_url}\">Link</a></td>
+                  <td style=\"padding:10px;border:1px solid #e5e7eb;\">{adv.barcode or '-'}</td>
+                  <td style=\"padding:10px;border:1px solid #e5e7eb;text-align:right;\">{adv.competitor_price:.2f} ₺</td>
+                  <td style=\"padding:10px;border:1px solid #e5e7eb;text-align:right;font-weight:700;\">{adv.my_price:.2f} ₺</td>
+                  <td style=\"padding:10px;border:1px solid #e5e7eb;text-align:right;color:#991b1b;font-weight:700;\">-{adv.price_difference:.2f} ₺ (%{adv.price_difference_percent:.1f})</td>
+                </tr>
+                """
+                for adv in self.too_cheap_advantages
+            ]
+        )
+
+        return f"""
+        <html>
+          <body style="font-family: Arial, sans-serif; color: #111827;">
+            <div style="max-width: 900px; margin: 0 auto;">
+              <h2 style="color:#991b1b;">⚠️ Çok Ucuzsunuz (%5+)</h2>
+              <p>
+                Aşağıdaki ürünlerde <b>rakibin fiyatına göre sizin fiyatınız %5'ten fazla düşük</b>.
+                Bu durum gereğinden fazla indirim / marj kaybı anlamına gelebilir.
+              </p>
+              <p style="background:#fff1f2;border:1px solid #fecdd3;padding:12px;border-radius:8px;color:#991b1b;">
+                Öneri: BuyBox, maliyet ve hedef marjınızı kontrol edin; gerekiyorsa fiyat güncelleyin.
+              </p>
+
+              <table style="width:100%;border-collapse:collapse;margin-top:14px;">
+                <thead>
+                  <tr style="background:#f9fafb;">
+                    <th style="padding:10px;border:1px solid #e5e7eb;text-align:left;">Ürün</th>
+                    <th style="padding:10px;border:1px solid #e5e7eb;text-align:left;">Link</th>
+                    <th style="padding:10px;border:1px solid #e5e7eb;text-align:left;">Barkod</th>
+                    <th style="padding:10px;border:1px solid #e5e7eb;text-align:right;">Rakip Fiyat</th>
+                    <th style="padding:10px;border:1px solid #e5e7eb;text-align:right;">Benim Fiyat</th>
+                    <th style="padding:10px;border:1px solid #e5e7eb;text-align:right;">Fark</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows}
+                </tbody>
+              </table>
+
+              <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">
+                Bu e-posta otomatik oluşturulmuştur.
+              </p>
+            </div>
+          </body>
+        </html>
+        """

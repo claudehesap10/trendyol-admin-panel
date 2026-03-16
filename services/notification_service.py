@@ -12,12 +12,17 @@ class NotificationService:
         self.my_merchant_name = my_merchant_name
         self.comparison_service = ReportComparisonService()
         self.email_sender = EmailSender()
+        self.notifications_enabled = False  # Fiyat Değişim Raporu Telegram/Mail bildirimleri kaldırıldı
 
     def compare_and_notify(self) -> None:
         """Raporları karşılaştırır ve filtrelenmiş değişimleri bildirir"""
         try:
             logger.info("🔔 Bildirim servisi başlatıldı.")
-            
+
+            if not self.notifications_enabled:
+                logger.info("ℹ️ Fiyat Değişim Raporu bildirimleri devre dışı (Telegram/Mail kaldırıldı).")
+                return
+
             # 1. Raporları karşılaştır (tüm ürünleri al ki kendi ürünlerimizi bulabilelim)
             result = self.comparison_service.compare_latest_reports(only_changes=False)
             
@@ -89,6 +94,8 @@ class NotificationService:
 
     def _send_telegram_notifications(self, filtered_changes: Dict[str, List[Dict]], summary: Dict) -> None:
         """Filtrelenmiş değişimleri Telegram'a gönderir (split messages if needed)"""
+        if not self.notifications_enabled:
+            return
         try:
             new_tag = summary.get("new_report", {}).get("tag", "N/A")
             old_tag = summary.get("old_report", {}).get("tag", "N/A")
@@ -167,6 +174,8 @@ class NotificationService:
 
     def _send_email_notification(self, filtered_changes: Dict[str, List[Dict]], summary: Dict) -> None:
         """Filtrelenmiş değişimleri HTML Mail olarak gönderir"""
+        if not self.notifications_enabled:
+            return
         try:
             new_tag = summary.get("new_report", {}).get("tag", "N/A")
             old_tag = summary.get("old_report", {}).get("tag", "N/A")
