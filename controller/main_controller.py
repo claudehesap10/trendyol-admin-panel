@@ -233,137 +233,13 @@ class MainController:
             
             # Bildirim gönder
             if alerts or advantages:
-                # Telegram'a bildirim gönder
-                if self.telegram:
-                    self._send_price_notifications_telegram(alerts, advantages, summary)
-                
-                # Email'e bildirim gönder
-                if self.email_sender:
-                    self._send_price_notifications_email(alerts, advantages)
+                logger.info(f"🔍 Analiz Sonucu: {len(alerts)} Uyarı, {len(advantages)} Avantaj tespit edildi.")
             else:
                 logger.info("ℹ️ Özel durum yok, bildirim gönderilmedi")
             
         except Exception as e:
             logger.error(f"❌ Fiyat kontrol hatası: {e}")
     
-    def _send_price_notifications_telegram(self, alerts: List, advantages: List, summary: str) -> None:
-        """Telegram'a fiyat bildirimlerini gönder (hem uyarı hem avantaj)"""
-        try:
-            # Önce özet gönder
-            self.telegram.send_message(summary)
-            
-            # UYARILAR (Rakip bizden ucuz)
-            if alerts:
-                self.telegram.send_message(f"{'='*40}\n🔴 FİYAT UYARILARI\n{'='*40}")
-                
-                for i, alert in enumerate(alerts[:10], 1):  # Max 10 uyarı
-                    message = str(alert)
-                    self.telegram.send_message(message)
-                    
-                    import time
-                    time.sleep(0.5)
-                
-                if len(alerts) > 10:
-                    self.telegram.send_message(
-                        f"ℹ️ Toplam {len(alerts)} uyarı var, ilk 10'u gösterildi.\n"
-                        f"Detaylı rapor için email'i kontrol edin."
-                    )
-            
-            # AVANTAJLAR (Biz rakipten ucuz)
-            if advantages:
-                self.telegram.send_message(f"\n{'='*40}\n✅ FİYAT AVANTAJLARI\n{'='*40}")
-                
-                for i, advantage in enumerate(advantages[:10], 1):  # Max 10 avantaj
-                    message = str(advantage)
-                    self.telegram.send_message(message)
-                    
-                    import time
-                    time.sleep(0.5)
-                
-                if len(advantages) > 10:
-                    self.telegram.send_message(
-                        f"ℹ️ Toplam {len(advantages)} avantaj var, ilk 10'u gösterildi.\n"
-                        f"Detaylı rapor için email'i kontrol edin."
-                    )
-            
-            logger.info("✅ Telegram fiyat bildirimleri gönderildi")
-        except Exception as e:
-            logger.error(f"❌ Telegram bildirim hatası: {e}")
-    
-    def _send_price_notifications_email(self, alerts: List, advantages: List) -> None:
-        """Email'e fiyat bildirimlerini gönder (hem uyarı hem avantaj)"""
-        try:
-            # HTML email içeriği oluştur
-            html_summary = self.price_monitor.get_html_summary()
-            
-            # UYARILAR
-            html_alerts = ""
-            if alerts:
-                html_alerts += '<h2 style="color: #d32f2f; border-bottom: 2px solid #d32f2f; padding-bottom: 10px; margin-top: 30px;">🔴 FİYAT UYARILARI ({} adet)</h2>'.format(len(alerts))
-                for alert in alerts:
-                    html_alerts += alert.to_html() + "\n"
-            
-            # AVANTAJLAR
-            html_advantages = ""
-            if advantages:
-                html_advantages += '<h2 style="color: #2e7d32; border-bottom: 2px solid #2e7d32; padding-bottom: 10px; margin-top: 30px;">✅ FİYAT AVANTAJLARI ({} adet)</h2>'.format(len(advantages))
-                for advantage in advantages:
-                    html_advantages += advantage.to_html() + "\n"
-            
-            html_body = f"""
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <style>
-                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                    .container {{ max-width: 900px; margin: 0 auto; padding: 20px; }}
-                    .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }}
-                    .footer {{ background-color: #f5f5f5; padding: 20px; text-align: center; margin-top: 30px; border-radius: 0 0 8px 8px; font-size: 12px; color: #666; }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1 style="margin: 0; font-size: 32px;">� Fiyat Karşılaştırma Raporu</h1>
-                        <p style="margin: 15px 0 0 0; font-size: 16px; opacity: 0.9;">
-                            Rakiplerinizle fiyat karşılaştırması ve rekabet analizi
-                        </p>
-                    </div>
-                    
-                    {html_summary}
-                    
-                    {html_alerts}
-                    
-                    {html_advantages}
-                    
-                    <div class="footer">
-                        <p><strong>📌 Önemli Notlar:</strong></p>
-                        <p style="margin: 10px 0;">
-                            • � Uyarılar: Rakiplerin sizden daha ucuza sattığı ürünler<br>
-                            • ✅ Avantajlar: Sizin rakiplerden daha ucuza sattığınız ürünler<br>
-                            • 💡 Fiyatlarınızı düzenli kontrol ederek rekabetçi kalın!
-                        </p>
-                        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
-                        <p style="color: #999;">
-                            Bu rapor otomatik olarak oluşturulmuştur.<br>
-                            Trendyol Fiyat Takip Sistemi - {datetime.now().strftime('%d.%m.%Y %H:%M')}
-                        </p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """
-            
-            total_count = len(alerts) + len(advantages)
-            subject = f"� Fiyat Raporu: {len(alerts)} Uyarı, {len(advantages)} Avantaj"
-            
-            if self.email_sender.send_html_email(subject, html_body):
-                logger.info("✅ Email fiyat bildirimleri gönderildi")
-            else:
-                logger.warning("⚠️ Email fiyat bildirimleri gönderilemedi")
-                
-        except Exception as e:
-            logger.error(f"❌ Email bildirim hatası: {e}")
     
     def _send_success_notification(self) -> None:
         """Başarı bildirimi gönder"""
