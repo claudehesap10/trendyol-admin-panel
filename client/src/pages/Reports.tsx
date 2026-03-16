@@ -52,7 +52,7 @@ interface GroupedProduct {
 
 type SortField = "buyBoxPrice" | "rating" | "sellerCount" | null;
 type SortDir = "asc" | "desc";
-type QuickFilter = 'won' | 'lost' | 'risky' | 'alone' | 'multi' | null;
+type QuickFilter = 'won' | 'lost' | 'risky' | 'alone' | 'multi' | 'too-cheap' | null;
 
 export default function Reports() {
   const [data, setData] = useState<ReportData[]>([]);
@@ -119,7 +119,7 @@ export default function Reports() {
 
   // ─── İstatistikler ────────────────────────────────────────────────────────
   const buyBoxStats = useMemo(() => {
-    let buyBoxMine = 0, buyBoxLost = 0, buyBoxRisky = 0, notMySeller = 0;
+    let buyBoxMine = 0, buyBoxLost = 0, buyBoxRisky = 0, notMySeller = 0, tooCheap = 0;
     const myName = mySellerName.trim().toLowerCase();
     groupedProducts.forEach(product => {
       const myData = product.allSellers.find(s => s.sellerName.trim().toLowerCase() === myName);
@@ -128,10 +128,16 @@ export default function Reports() {
       if (iAmCheapest) {
         const cheapestRival = product.allSellers.find(s => s.sellerName.trim().toLowerCase() !== myName);
         const gap = cheapestRival ? cheapestRival.finalPrice - myData.finalPrice : Infinity;
+        
+        // Çok Ucuz Kontrolü: Rakip ile fark %5'ten fazla mı?
+        if (cheapestRival && ((cheapestRival.finalPrice - myData.finalPrice) / myData.finalPrice) > 0.05) {
+          tooCheap++;
+        }
+
         if (gap < 50) buyBoxRisky++; else buyBoxMine++;
       } else { buyBoxLost++; }
     });
-    return { buyBoxMine, buyBoxLost, buyBoxRisky, notMySeller };
+    return { buyBoxMine, buyBoxLost, buyBoxRisky, notMySeller, tooCheap };
   }, [groupedProducts, mySellerName]);
 
   // ─── Filtreleme ───────────────────────────────────────────────────────────
@@ -178,6 +184,15 @@ export default function Reports() {
       });
     } else if (quickFilter === 'multi') {
       filtered = filtered.filter(p => p.allSellers.length >= 3);
+    } else if (quickFilter === 'too-cheap') {
+      filtered = filtered.filter(product => {
+        const myData = product.allSellers.find(s => s.sellerName.toLowerCase() === myName);
+        if (!myData) return false;
+        const iAmCheapest = product.allSellers[0].sellerName.toLowerCase() === myName;
+        if (!iAmCheapest) return false;
+        const cheapestRival = product.allSellers.find(s => s.sellerName.toLowerCase() !== myName);
+        return cheapestRival && ((cheapestRival.finalPrice - myData.finalPrice) / myData.finalPrice) > 0.05;
+      });
     }
     if (sortField) {
       filtered = [...filtered].sort((a, b) => {
@@ -297,34 +312,14 @@ export default function Reports() {
       icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>,
     },
     {
-      id: 'risky' as QuickFilter,
-      label: 'Riskli (<50₺)',
-      count: buyBoxStats.buyBoxRisky,
-      activeColor: 'bg-amber-500 border-amber-500',
-      hoverColor: 'hover:border-amber-300 hover:text-amber-600',
-      countBg: 'bg-amber-100 text-amber-700',
-      activeCountBg: 'bg-amber-400 text-white',
-      icon: <span className="text-[11px]">⚠️</span>,
-    },
-    {
-      id: 'alone' as QuickFilter,
-      label: 'Tek satıcıyım',
-      count: null,
-      activeColor: 'bg-blue-500 border-blue-500',
-      hoverColor: 'hover:border-blue-300 hover:text-blue-600',
-      countBg: '',
-      activeCountBg: '',
-      icon: <span className="text-[11px]">🟢</span>,
-    },
-    {
-      id: 'multi' as QuickFilter,
-      label: '3+ satıcılı',
-      count: null,
-      activeColor: 'bg-purple-500 border-purple-500',
-      hoverColor: 'hover:border-purple-300 hover:text-purple-600',
-      countBg: '',
-      activeCountBg: '',
-      icon: <span className="text-[11px]">🔥</span>,
+      id: 'too-cheap' as QuickFilter,
+      label: 'Çok Ucuzum',
+      count: buyBoxStats.tooCheap,
+      activeColor: 'bg-indigo-500 border-indigo-500',
+      hoverColor: 'hover:border-indigo-300 hover:text-indigo-600',
+      countBg: 'bg-indigo-100 text-indigo-700',
+      activeCountBg: 'bg-indigo-400 text-white',
+      icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>,
     },
   ];
 
@@ -360,14 +355,6 @@ export default function Reports() {
                 <Download className="mr-2 h-4 w-4" />
                 <span className="text-sm font-semibold">Excel İndir</span>
               </Button>
-              <Button 
-                variant="default" 
-                onClick={() => window.location.href = "/analysis"} 
-                className="flex-1 sm:flex-none h-10 px-5 bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md rounded-xl border-none"
-              >
-                <TrendingUp className="mr-2 h-4 w-4" />
-                <span className="text-sm font-semibold">Fiyat Analizi</span>
-              </Button>
             </div>
           </div>
 
@@ -382,17 +369,11 @@ export default function Reports() {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mb-8">
               {/* Kazandım Card */}
               <div className="bg-[#f0fdf4] border border-emerald-100 rounded-2xl p-6 text-center transition-transform hover:scale-[1.02]">
-                <div className="text-5xl font-black text-emerald-700 mb-1">{buyBoxStats.buyBoxMine}</div>
+                <div className="text-5xl font-black text-emerald-700 mb-1">{buyBoxStats.buyBoxMine + buyBoxStats.buyBoxRisky}</div>
                 <div className="text-sm font-bold text-emerald-600/80 tracking-wide uppercase">Kazandım</div>
-              </div>
-              
-              {/* Riskli Card */}
-              <div className="bg-[#fffbeb] border border-amber-100 rounded-2xl p-6 text-center transition-transform hover:scale-[1.02]">
-                <div className="text-5xl font-black text-amber-700 mb-1">{buyBoxStats.buyBoxRisky}</div>
-                <div className="text-sm font-bold text-amber-600/80 tracking-wide uppercase">Riskli</div>
               </div>
               
               {/* Kaybettim Card */}
@@ -419,9 +400,8 @@ export default function Reports() {
                     style={{ width: `${(buyBoxStats.buyBoxLost / groupedProducts.length) * 100}%` }}
                   />
                 </div>
-                <div className="flex justify-between text-[10px] font-bold text-zinc-400 px-1 uppercase tracking-tighter">
-                  <span>Toplam {groupedProducts.length} Ürün Analiz Edildi</span>
-                  <span className="text-emerald-600">% {Math.round((buyBoxStats.buyBoxMine / groupedProducts.length) * 100)} Başarı</span>
+                <div className="flex justify-end text-[10px] font-bold text-zinc-400 px-1 uppercase tracking-tighter">
+                  <span className="text-emerald-600">% {Math.round(((buyBoxStats.buyBoxMine + buyBoxStats.buyBoxRisky) / groupedProducts.length) * 100)} Başarı</span>
                 </div>
               </div>
             )}
@@ -621,8 +601,19 @@ export default function Reports() {
                                     <TooltipContent side="top" className="max-w-[420px] text-xs">{product.productName}</TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
+                                {iAmBuyBox && (
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full shrink-0 font-bold border border-emerald-200">Kazandım</span>
+                                )}
+                                {(() => {
+                                  const myData = product.allSellers.find(s => s.sellerName.toLowerCase() === myName);
+                                  const cheapestRival = product.allSellers.find(s => s.sellerName.toLowerCase() !== myName);
+                                  if (iAmBuyBox && myData && cheapestRival && ((cheapestRival.finalPrice - myData.finalPrice) / myData.finalPrice) > 0.05) {
+                                    return <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full shrink-0 font-bold border border-indigo-200">Çok Ucuzsun</span>;
+                                  }
+                                  return null;
+                                })()}
                                 {iAmSeller && !iAmBuyBox && (
-                                  <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full shrink-0">Kaybettim</span>
+                                  <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full shrink-0 font-bold border border-red-200">Kaybettim</span>
                                 )}
                                 {product.productLink && (
                                   <a href={product.productLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-blue-600 hover:text-blue-800 shrink-0">
@@ -758,8 +749,19 @@ export default function Reports() {
                               </Badge>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
+                              {iAmBuyBox && (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold border border-emerald-200">Kazandım</span>
+                              )}
+                              {(() => {
+                                const myData = product.allSellers.find(s => s.sellerName.toLowerCase() === myName);
+                                const cheapestRival = product.allSellers.find(s => s.sellerName.toLowerCase() !== myName);
+                                if (iAmBuyBox && myData && cheapestRival && ((cheapestRival.finalPrice - myData.finalPrice) / myData.finalPrice) > 0.05) {
+                                  return <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold border border-indigo-200">Çok Ucuz</span>;
+                                }
+                                return null;
+                              })()}
                               {iAmSeller && !iAmBuyBox && (
-                                <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Kaybettim</span>
+                                <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-bold border border-red-200">Kaybettim</span>
                               )}
                               <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
                                 <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
