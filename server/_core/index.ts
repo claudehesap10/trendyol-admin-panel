@@ -36,6 +36,54 @@ async function startServer() {
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   
+  // Helper function: GitHub'dan Excel indirip parse eder
+  async function fetchAndParseExcel(release: any) {
+    const excelFile = release.assets?.find((asset: any) => asset.name.endsWith(".xlsx"));
+    if (!excelFile) return null;
+
+    // Private repo desteği için asset API URL'ini kullanıyoruz
+    const assetUrl = excelFile.url;
+    const fileResponse = await fetch(assetUrl, {
+      headers: {
+        Accept: "application/octet-stream",
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      },
+    });
+
+    if (!fileResponse.ok) throw new Error(`Failed to download Excel for ${release.tag_name}`);
+
+    const buffer = await fileResponse.arrayBuffer();
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+    const sheetName = "Tarama Raporu";
+    const worksheet = workbook.Sheets[sheetName] || workbook.Sheets[workbook.SheetNames[0]];
+    
+    const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+    const headers: string[] = [];
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_col(col) + "4";
+      const cell = worksheet[cellAddress];
+      headers.push(cell?.v?.toString() || "");
+    }
+    
+    const data: any[] = [];
+    for (let row = 5; row <= range.e.r; row++) {
+      const rowData: any = {};
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = XLSX.utils.encode_col(col) + row;
+        const cell = worksheet[cellAddress];
+        const header = headers[col - range.s.c];
+        if (header) {
+          rowData[header] = cell?.v ?? "";
+        }
+      }
+      if (Object.values(rowData).some((v) => v !== "")) {
+        data.push(rowData);
+      }
+    }
+    return data;
+  }
+
   // Reports API endpoint
   app.get("/api/reports/latest", async (req, res) => {
     try {
@@ -55,87 +103,118 @@ async function startServer() {
       }
 
       const releases = await response.json();
+      if (releases.length === 0) return res.json({ data: [], releases: [] });
 
-      if (releases.length === 0) {
-        return res.json({ data: [], releases: [] });
-      }
-
-      const latestRelease = releases[0];
-      const excelFile = latestRelease.assets?.find((asset: any) =>
-        asset.name.endsWith(".xlsx")
-      );
-
-      if (!excelFile) {
-        return res.json({ data: [], releases });
-      }
-
-      const downloadUrl = `https://github.com/claudehesap10/trendyol-admin-panel/releases/download/${latestRelease.tag_name}/${excelFile.name}`;
-      const fileResponse = await fetch(downloadUrl);
-
-      if (!fileResponse.ok) throw new Error("Failed to download Excel");
-
-      const buffer = await fileResponse.arrayBuffer();
-
-      // Import XLSX dynamically
-      const XLSX = await import("xlsx");
-      const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
-      const sheetName = "Tarama Raporu";
-      const worksheet = workbook.Sheets[sheetName] || workbook.Sheets[workbook.SheetNames[0]];
-      
-      // 4. satırdan başlıkları oku
-      const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
-      const headers: string[] = [];
-      for (let col = range.s.c; col <= range.e.c; col++) {
-        const cellAddress = XLSX.utils.encode_col(col) + "4";
-        const cell = worksheet[cellAddress];
-        headers.push(cell?.v?.toString() || "");
-      }
-      
-      // 5. satırdan veriyi oku
-      const data: any[] = [];
-      for (let row = 5; row <= range.e.r; row++) {
-        const rowData: any = {};
-        for (let col = range.s.c; col <= range.e.c; col++) {
-          const cellAddress = XLSX.utils.encode_col(col) + row;
-          const cell = worksheet[cellAddress];
-          const header = headers[col - range.s.c];
-          if (header) {
-            rowData[header] = cell?.v ?? "";
-          }
-        }
-        if (Object.values(rowData).some((v) => v !== "")) {
-          data.push(rowData);
-        }
-      }
-
-      res.json({ data, releases });
+      const data = await fetchAndParseExcel(releases[0]);
+      res.json({ data: data || [], releases });
     } catch (error) {
       console.error("Error fetching reports:", error);
       res.status(500).json({ error: "Failed to fetch reports" });
     }
   });
 
-  // Comparison API Proxy (Python'a yönlendirme)
+  // Comparison API - Artık Node.js üzerinden çalışıyor (Python servisine ihtiyaç duymaz)
   app.get("/api/reports/compare", async (req, res) => {
     try {
       const showAll = req.query.show_all === "true";
-      const pythonResponse = await fetch(
-        `http://localhost:8000/api/reports/compare?show_all=${showAll}`
-      );
       
-      if (!pythonResponse.ok) {
-        const errorText = await pythonResponse.text();
-        throw new Error(`Python service error: ${pythonResponse.status} - ${errorText}`);
+      const response = await fetch(
+        "https://api.github.com/repos/claudehesap10/trendyol-admin-panel/releases",
+        {
+          headers: {
+            Accept: "application/vnd.github.v3+json",
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          },
+        }
+      );
+
+      if (!response.ok) throw new Error("GitHub releases could not be fetched");
+      const releases = await response.json();
+
+      if (releases.length < 2) {
+        return res.json({ 
+          success: false, 
+          message: "Karşılaştırma için en az iki rapor (release) gerekiyor." 
+        });
       }
 
-      const result = await pythonResponse.json();
-      res.json(result);
-    } catch (error) {
-      console.error("Comparison proxy error:", error);
-      res.status(500).json({ 
-        success: false, 
-        message: "Karşılaştırma servisine ulaşılamıyor. Python API'nin ayakta olduğundan emin olun." 
+      const [newRelease, oldRelease] = releases;
+      const [newData, oldData] = await Promise.all([
+        fetchAndParseExcel(newRelease),
+        fetchAndParseExcel(oldRelease)
+      ]);
+
+      if (!newData || !oldData) {
+        throw new Error("Excel files could not be parsed");
+      }
+
+      // Karşılaştırma Mantığı
+      const oldMap = new Map();
+      oldData.forEach((item: any) => {
+        const key = `${item["Ürün Adı"]}_${item["Satıcı"]}`;
+        oldMap.set(key, item);
       });
+
+      const changes: any[] = [];
+      const stats = { "İndirim": 0, "Zam": 0, "Sabit": 0, "Yeni Satıcı": 0, "Total": newData.length };
+
+      newData.forEach((row: any) => {
+        const key = `${row["Ürün Adı"]}_${row["Satıcı"]}`;
+        const oldRow = oldMap.get(key);
+
+        const newPrice = parseFloat(row["Son Fiyat (TL)"]) || 0;
+        const oldPrice = oldRow ? parseFloat(oldRow["Son Fiyat (TL)"]) : null;
+
+        let status: "İndirim" | "Zam" | "Sabit" | "Yeni Satıcı" = "Sabit";
+        let diff = 0;
+        let percent = 0;
+
+        if (oldPrice === null) {
+          status = "Yeni Satıcı";
+        } else {
+          diff = newPrice - oldPrice;
+          if (Math.abs(diff) > 0.05) {
+            percent = (diff / oldPrice) * 100;
+            status = diff > 0 ? "Zam" : "İndirim";
+          } else {
+            status = "Sabit";
+            diff = 0;
+            percent = 0;
+          }
+        }
+
+        stats[status]++;
+
+        if (showAll || status !== "Sabit") {
+          changes.push({
+            product: row["Ürün Adı"],
+            barcode: row["Barkod"] || (oldRow ? oldRow["Barkod"] : ""),
+            url: row["Ürün Linki"],
+            seller: row["Satıcı"],
+            new_price: newPrice,
+            old_price: oldPrice,
+            diff: Number(diff.toFixed(2)),
+            percent: Number(percent.toFixed(2)),
+            status: status
+          });
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          summary: {
+            new_report: { tag: newRelease.tag_name, date: newRelease.published_at },
+            old_report: { tag: oldRelease.tag_name, date: oldRelease.published_at },
+            stats
+          },
+          changes
+        }
+      });
+
+    } catch (error: any) {
+      console.error("Comparison error:", error);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
   
