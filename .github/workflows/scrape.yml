@@ -2,19 +2,18 @@ name: Trendyol Scraper - Günlük 3 Tarama
 
 on:
   schedule:
-    # Sabah 09:00 (UTC 06:00)
-    - cron: '0 6 * * *'
-    # Öğle 13:00 (UTC 10:00)
-    - cron: '0 10 * * *'
-    # Akşam 19:00 (UTC 16:00)
-    - cron: '0 16 * * *'
-  # Manuel tetikleme
+    - cron: '0 6 * * *'   # Sabah 09:00 (UTC+3)
+    - cron: '0 10 * * *'  # Öğle 13:00
+    - cron: '0 16 * * *'  # Akşam 19:00
   workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # 255 ürün için yeterli süre
+    # 260 ürün × ~8s + buffer = ~45dk scraping
+    # Karşılaştırma + mail ~5dk
+    # Toplam güvenli sınır: 120 dakika
+    timeout-minutes: 120
     permissions:
       contents: write
 
@@ -46,7 +45,7 @@ jobs:
 
       - name: Scraper'ı çalıştır
         env:
-          CI: 'true'  # Headless mode için
+          CI: 'true'
           TRENDYOL_STORE_URL: ${{ secrets.TRENDYOL_STORE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -60,19 +59,20 @@ jobs:
           MY_MERCHANT_NAME: ${{ secrets.MY_MERCHANT_NAME }}
           ENABLE_PRICE_ALERTS: ${{ secrets.ENABLE_PRICE_ALERTS }}
           PRICE_ALERT_THRESHOLD: ${{ secrets.PRICE_ALERT_THRESHOLD }}
+          # Batch ayarları — Actions'da memory patlamasını önler
+          SCRAPER_BATCH_SIZE: '5'
+          SCRAPER_MAX_WORKERS: '3'
           OUTPUT_FOLDER: reports
           DEBUG_MODE: 'False'
-        run: |
-          python controller/main_controller.py
+        run: python controller/main_controller.py
 
       - name: Dosyaları listele
         if: always()
         run: |
-          echo "=== reports/ klasöründe dosyalar ==="
-          ls -lah reports/ || echo "reports/ klasörü bulunamadı"
-          echo ""
-          echo "=== Tüm xlsx dosyaları ==="
-          find . -name "*.xlsx" -type f 2>/dev/null || echo "xlsx dosyası bulunamadı"
+          echo "=== reports/ ==="
+          ls -lah reports/ || echo "reports/ bulunamadı"
+          echo "=== xlsx dosyaları ==="
+          find . -name "*.xlsx" -type f 2>/dev/null || echo "Yok"
 
       - name: Raporları GitHub Releases'a yükle
         if: success()
@@ -80,7 +80,7 @@ jobs:
         with:
           files: reports/trendyol_rapor.xlsx
           tag_name: report-${{ github.run_number }}
-          body: "Trendyol fiyat karşilaşturması raporu - Tarama #${{ github.run_number }}"
+          body: "Trendyol fiyat raporu — Tarama #${{ github.run_number }}"
           draft: false
           prerelease: false
         env:
@@ -106,9 +106,7 @@ jobs:
           from services.notification_service import NotificationService
           from config.config import Config
           import logging
-          
           logging.basicConfig(level=logging.INFO)
-          
           telegram = TelegramService(Config.TELEGRAM_BOT_TOKEN, Config.TELEGRAM_CHAT_ID)
           notification = NotificationService(telegram, Config.MY_MERCHANT_NAME)
           notification.compare_and_notify()
@@ -125,9 +123,6 @@ jobs:
       - name: Hata durumunda Telegram bildirimi
         if: failure()
         run: |
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=❌ Trendyol scraper hatası! GitHub Actions #${{ github.run_number }} başarısız oldu. 
-
-          🔗 Log: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
+            -d "text=❌ Trendyol scraper hatası! Run #${{ github.run_number }} başarısız.%0A🔗 https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

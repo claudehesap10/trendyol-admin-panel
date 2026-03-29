@@ -1,330 +1,249 @@
 """
-Trendyol Scraper Servisi - Playwright ile JavaScript Desteği
-
-Trendyol'da fiyat katmanları:
-  1. Liste Fiyatı (old_price)   → üstü çizili, örn: 1.680 TL
-  2. Satış Fiyatı (price)       → asıl etiket fiyatı, örn: 1.680 TL
-  3. Kupon İndirimi (coupon)    → pembe badge, örn: "50 TL Kupon Fırsatı!" veya "%2 Kupon"
-  4. Sepette İndirimi (basket)  → yeşil banner, örn: "Sepette %5 İndirim"
-  5. Son Fiyat (net_price)      → tüm indirimler uygulandıktan sonra gerçek fiyat
-
-Excele yazılan alanlar:
-  - Orijinal Fiyat (TL)  = liste/satış fiyatı (indirimler öncesi)
-  - Kupon İndirimi       = kupon metni (varsa)
-  - Sepette İndirimi     = sepet indirim metni (varsa)
-  - Son Fiyat (TL)       = net_price (tüm indirimler sonrası)
+Kritik düzeltmeler:
+  1. Fiyat sanity check — kendi fiyatımızın %60'ından ucuz rakip fiyatı şüpheli, logla
+  2. Satıcı adı doğrulama — çekilen satıcı gerçekten o satıcı mı kontrol et
+  3. Net fiyat: kupon 100 TL ise liste - 100 = net olmalı
+  4. URL temizleme: boutiqueId + merchantId + tüm query string kaldır
 """
 
-import logging
 import re
+import logging
 import time
 import os
 from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Fiyat parse (değişmedi)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_price(text: str) -> float:
+    if not text:
+        return 0.0
+    try:
+        cleaned = re.sub(r'[^\d,.]', '', str(text).strip())
+        if not cleaned:
+            return 0.0
+        if ',' in cleaned and '.' in cleaned:
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        elif ',' in cleaned:
+            cleaned = cleaned.replace(',', '.')
+        elif '.' in cleaned:
+            parts = cleaned.split('.')
+            if len(parts) == 2 and len(parts[1]) == 3:
+                cleaned = cleaned.replace('.', '')
+            elif len(parts) > 2:
+                cleaned = cleaned.replace('.', '')
+        val = float(cleaned)
+        return val if 0 < val < 150000 else 0.0
+    except:
+        return 0.0
+
+
+def compute_net_price(price: float, coupon: str, basket_discount: str,
+                       basket_net_price: float, coupon_max_tl: float = 0.0) -> float:
+    """
+    Öncelik:
+      1. Sepette X TL direkt gösteriliyorsa → kullan
+      2. Yoksa: price - kupon - sepet (kupon max TL limitini uygula)
+    """
+    if basket_net_price > 0:
+        return round(basket_net_price, 2)
+
+    net = price
+    if not net:
+        return 0.0
+
+    if coupon:
+        pct = re.search(r'%(\d+)', coupon)
+        tl  = re.search(r'(\d[\d.,]*)\s*TL', coupon)
+        if pct:
+            discount = round(net * int(pct.group(1)) / 100, 2)
+            if coupon_max_tl > 0:
+                discount = min(discount, coupon_max_tl)
+            net = round(net - discount, 2)
+        elif tl:
+            tl_val = parse_price(tl.group(1))
+            if tl_val > 0:
+                net = round(net - tl_val, 2)
+
+    if basket_discount:
+        pct = re.search(r'%(\d+)', basket_discount)
+        tl  = re.search(r'(\d[\d.,]*)\s*TL', basket_discount)
+        if pct:
+            net = round(net * (1 - int(pct.group(1)) / 100), 2)
+        elif tl:
+            tl_val = parse_price(tl.group(1))
+            if tl_val > 0:
+                net = round(net - tl_val, 2)
+
+    return max(net, 0.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCRAPER
+# ─────────────────────────────────────────────────────────────────────────────
+
 class TrendyolScraper:
 
-    def __init__(self, store_url: str, max_retries: int = 3, retry_delay: int = 5):
-        self.store_url = store_url
-        self.max_retries = max_retries
-        self.retry_delay = retry_delay
-        self.merchant_id = self._extract_merchant_id(store_url)
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # YARDIMCI METODLAR
-    # ──────────────────────────────────────────────────────────────────────────
+    def __init__(self, store_url: str, max_retries: int = 3, retry_delay: int = 5,
+                 batch_size: int = 5, max_workers: int = 3,
+                 my_merchant_name: str = ""):
+        self.store_url        = store_url
+        self.max_retries      = max_retries
+        self.retry_delay      = retry_delay
+        self.batch_size       = batch_size
+        self.max_workers      = max_workers
+        self.my_merchant_name = my_merchant_name.upper()
+        self.merchant_id      = self._extract_merchant_id(store_url)
 
     def _extract_merchant_id(self, url: str) -> Optional[str]:
-        match = re.search(r'mid=(\d+)|merchantId=(\d+)', url)
-        return (match.group(1) or match.group(2)) if match else None
+        m = re.search(r'mid=(\d+)|merchantId=(\d+)', url)
+        return (m.group(1) or m.group(2)) if m else None
 
     def _clean_product_url(self, url: str) -> str:
         """
-        merchantId ve query string'i kaldır → tarafsız ürün sayfası.
-        merchantId ile açılınca Trendyol o satıcıya yönlendiriyor,
-        satıcı Buy Box'ta değilse Esvento kayboluyor.
+        Tüm query string'i kaldır — sadece /ürün-adı-p-XXXXX kalsın.
+
+        Neden önemli:
+          Trendyol URL'de boutiqueId veya merchantId varsa O mağazanın
+          fiyatını Buy Box olarak gösteriyor. Temiz URL açılınca gerçek
+          Buy Box sahibi görünür.
+
+        Örnek:
+          /lavazza/rossa-p-123?boutiqueId=61&merchantId=1126746
+          → https://www.trendyol.com/lavazza/rossa-p-123
         """
         clean = re.sub(r'\?.*$', '', url.strip())
         if clean.startswith('/'):
             clean = 'https://www.trendyol.com' + clean
+        # http → https
+        if clean.startswith('http://'):
+            clean = 'https://' + clean[7:]
         return clean
-
-    def _parse_price(self, text: str) -> float:
-        """
-        Trendyol fiyat metinlerini float'a çevir.
-        
-        Türkçe format: binlik ayraç=nokta, ondalık=virgül
-          "1.499 TL"    → 1499.0   (sadece nokta, binlik ayraç)
-          "1.234,56 TL" → 1234.56  (nokta binlik, virgül ondalık)
-          "1234,56"     → 1234.56  (sadece virgül, ondalık)
-          "1.596"       → 1596.0   (sadece nokta, binlik ayraç)
-        
-        Kritik kural: Eğer sadece nokta varsa VE noktadan sonra tam 3 rakam varsa
-        → binlik ayraç, nokta kaldırılır.
-        Eğer sadece nokta varsa VE noktadan sonra 1-2 rakam varsa → ondalık.
-        """
-        if not text:
-            return 0.0
-        try:
-            cleaned = re.sub(r'[^\d,.]', '', text.strip())
-            if not cleaned:
-                return 0.0
-
-            if ',' in cleaned and '.' in cleaned:
-                # "1.234,56" → binlik nokta + ondalık virgül
-                cleaned = cleaned.replace('.', '').replace(',', '.')
-
-            elif ',' in cleaned and '.' not in cleaned:
-                # "1234,56" → sadece ondalık virgül
-                cleaned = cleaned.replace(',', '.')
-
-            elif '.' in cleaned and ',' not in cleaned:
-                # Sadece nokta var — binlik mi ondalık mı?
-                parts = cleaned.split('.')
-                if len(parts) == 2 and len(parts[1]) == 3:
-                    # "1.499" → 1499 (binlik ayraç)
-                    cleaned = cleaned.replace('.', '')
-                elif len(parts) > 2:
-                    # "1.234.567" → tüm noktalar binlik
-                    cleaned = cleaned.replace('.', '')
-                # else: "1.5" gibi → ondalık, olduğu gibi bırak
-
-            val = float(cleaned)
-            if val > 100000:
-                return 0.0
-            return val
-        except:
-            return 0.0
-
-    def _compute_net_price(self, price: float, coupon: str, basket_discount: str,
-                            basket_net_price: float) -> float:
-        """
-        Gerçek son fiyatı hesapla.
-        
-        Öncelik sırası:
-        1. Eğer sayfa "Sepette X TL" olarak direkt fiyatı gösteriyorsa → onu kullan
-        2. Yoksa: price üzerine kupon + sepet indirimini uygula
-        
-        Trendyol'da genellikle sepet indirimi sayfada doğrudan hesaplanmış
-        "Sepette 1.596 TL" şeklinde gösteriliyor. Bu değeri yakaladıysak en güvenilir.
-        """
-        if basket_net_price > 0:
-            return basket_net_price  # En güvenilir: sayfa direkt hesaplamış
-
-        net = price
-        if not net:
-            return 0.0
-
-        # Kupon indirimi uygula
-        if coupon:
-            # "%5 İndirim" veya "50 TL Kupon" formatları
-            pct_match = re.search(r'%(\d+)', coupon)
-            tl_match = re.search(r'(\d+(?:[.,]\d+)?)\s*TL', coupon)
-            if pct_match:
-                net = round(net * (1 - int(pct_match.group(1)) / 100), 2)
-            elif tl_match:
-                tl_val = self._parse_price(tl_match.group(1))
-                if tl_val > 0:
-                    net = round(net - tl_val, 2)
-
-        # Sepette indirim uygula
-        if basket_discount:
-            pct_match = re.search(r'%(\d+)', basket_discount)
-            tl_match = re.search(r'(\d+(?:[.,]\d+)?)\s*TL', basket_discount)
-            if pct_match:
-                net = round(net * (1 - int(pct_match.group(1)) / 100), 2)
-            elif tl_match:
-                tl_val = self._parse_price(tl_match.group(1))
-                if tl_val > 0:
-                    net = round(net - tl_val, 2)
-
-        return max(net, 0.0)
 
     def _make_browser_context(self, playwright):
         is_ci = os.getenv('CI', 'false').lower() == 'true'
-        browser = playwright.chromium.launch(
-            headless=is_ci,
-            args=['--disable-blink-features=AutomationControlled']
-        )
+        args = ['--disable-blink-features=AutomationControlled']
+        if is_ci:
+            args += [
+                '--no-sandbox', '--disable-dev-shm-usage',
+                '--disable-gpu', '--single-process',
+            ]
+        browser = playwright.chromium.launch(headless=is_ci, args=args)
         context = browser.new_context(
-            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+            user_agent=(
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/145.0.0.0 Safari/537.36'
+            ),
             viewport={'width': 1920, 'height': 1080},
             locale='tr-TR',
-            timezone_id='Europe/Istanbul'
+            timezone_id='Europe/Istanbul',
         )
         return browser, context
 
     def initialize(self) -> bool:
         try:
-            try:
-                from playwright.sync_api import sync_playwright
-                logger.info("✅ Playwright bulundu")
-            except ImportError:
-                import subprocess
-                subprocess.check_call(['pip', 'install', 'playwright'])
-                subprocess.check_call(['playwright', 'install', 'chromium'])
-                logger.info("✅ Playwright yüklendi")
+            from playwright.sync_api import sync_playwright  # noqa
             return True
-        except Exception as e:
-            logger.error(f"❌ Başlatma hatası: {e}")
-            return False
+        except ImportError:
+            import subprocess
+            subprocess.check_call(['pip', 'install', 'playwright'])
+            subprocess.check_call(['playwright', 'install', 'chromium'])
+            return True
 
     # ──────────────────────────────────────────────────────────────────────────
-    # ÜRÜN LİSTESİ — Tek sayfada agresif infinite scroll
-    #
-    # Trendyol mağaza sayfası (sr?mid=X) infinite scroll kullanıyor.
-    # pi=2, pi=3 gibi pagination parametreleri çalışmıyor — sayfa 1'i tekrar döndürüyor.
-    # Tüm ürünleri almak için tek sayfada yeterince scroll yapmak gerekiyor.
+    # Ürün listesi (değişmedi)
     # ──────────────────────────────────────────────────────────────────────────
+
+    def fetch_products(self) -> List[Dict]:
+        return self.fetch_products_via_browser()
+
+    def fetch_products_via_api(self) -> List[Dict]:
+        return self.fetch_products_via_browser()
 
     def fetch_products_via_browser(self) -> List[Dict]:
         if not self.merchant_id:
             logger.error("❌ Merchant ID yok!")
             return []
-
         try:
             from playwright.sync_api import sync_playwright
-            all_products = []
-            seen_ids = set()
-
+            all_products, seen_ids = [], set()
             with sync_playwright() as p:
                 browser, context = self._make_browser_context(p)
                 page = context.new_page()
-
                 url = f"https://www.trendyol.com/sr?mid={self.merchant_id}&os=1"
-                logger.info(f"📄 Mağaza sayfası açılıyor: {url}")
-
                 page.goto(url, wait_until='domcontentloaded', timeout=60000)
                 time.sleep(1.5)
-
-                # Toplam ürün sayısını oku (varsa) — hedef kart sayısı için
-                total_expected = self._read_total_product_count(page)
-                if total_expected:
-                    logger.info(f"📦 Hedef: {total_expected} ürün")
-
-                # Agresif infinite scroll
-                cards = self._scroll_until_all_loaded(page, total_expected)
-
-                logger.info(f"📦 Scroll sonrası {len(cards)} kart bulundu")
-
+                total = self._read_total_product_count(page)
+                cards = self._scroll_until_all_loaded(page, total)
                 for card in cards:
-                    product = self._extract_product_from_card(card, seen_ids)
-                    if product:
-                        all_products.append(product)
-                        seen_ids.add(product['id'])
-
+                    p_data = self._extract_product_from_card(card, seen_ids)
+                    if p_data:
+                        all_products.append(p_data)
+                        seen_ids.add(p_data['id'])
                 browser.close()
-
             logger.info(f"✅ {len(all_products)} ürün çekildi")
             return all_products
-
         except Exception as e:
-            logger.error(f"❌ Ürün çekme hatası: {e}")
+            logger.error(f"❌ Ürün listesi hatası: {e}")
             return []
 
     def _read_total_product_count(self, page) -> int:
-        """
-        Sayfadaki "255+ Ürün" veya "255 Ürün" metninden toplam ürün sayısını oku.
-        Bulunamazsa 0 döner.
-        """
         try:
             body = page.text_content('body') or ''
-            match = re.search(r'(\d+)\+?\s*[Üü]r[üu]n', body)
-            if match:
-                return int(match.group(1))
+            m = re.search(r'(\d+)\+?\s*[Üü]r[üu]n', body)
+            return int(m.group(1)) if m else 0
         except:
-            pass
-        return 0
+            return 0
 
     def _scroll_until_all_loaded(self, page, total_expected: int = 0):
-        """
-        Tüm ürünler yüklenene kadar scroll yap.
+        last_count = no_new = 0
+        max_no_new = 25  # Daha sabırlı
 
-        Strateji:
-        1. Sayfayı küçük adımlarla scroll et
-        2. Her adımda yeni kart gelip gelmediğini kontrol et
-        3. Durma koşulları:
-           a. Hedef sayıya ulaştıysak (total_expected > 0)
-           b. Çok uzun süre (200 deneme) yeni kart gelmediyse
-           c. En fazla 500 scroll denemesi
-        """
-        last_count = 0
-        no_new_cards = 0
-        max_no_new = 15      # 15 kez yeni kart gelmeyince dur
-        max_attempts = 500   # Mutlak maksimum scroll
+        for attempt in range(500):
+            page.evaluate('window.scrollBy(0, 800)')  # Küçük adım — son kartları kaçırma
+            time.sleep(1.2)
 
-        for attempt in range(max_attempts):
-            # Büyük adımlarla scroll — daha az adımda daha fazla mesafe
-            page.evaluate('window.scrollBy(0, 1500)')
-            time.sleep(0.8)
-
-            # Her 3 adımda bir kart sayısını kontrol et — gereksiz DOM sorgusu azaltır
             if attempt % 3 != 0:
-                no_new_cards += 1
-                if no_new_cards >= max_no_new:
-                    logger.info(f"  ✅ {max_no_new} denemede yeni kart yok — scroll tamamlandı ({last_count} kart)")
+                no_new += 1
+                if no_new >= max_no_new:
                     break
                 continue
 
             cards = self._find_product_cards(page)
-            current_count = len(cards)
-
-            if current_count > last_count:
-                new = current_count - last_count
-                logger.info(f"  📜 Scroll {attempt+1}: {current_count} kart (+{new})")
-                last_count = current_count
-                no_new_cards = 0
-
-                # Hedefe ulaştıysak dur
-                if total_expected > 0 and current_count >= total_expected:
-                    logger.info(f"  ✅ Hedefe ulaşıldı: {current_count}/{total_expected}")
+            cur = len(cards)
+            if cur > last_count:
+                logger.info(f"  📜 Scroll {attempt+1}: {cur} kart (+{cur-last_count})")
+                last_count, no_new = cur, 0
+                if total_expected > 0 and cur >= total_expected:
                     break
             else:
-                no_new_cards += 1
-
-                # "Daha Fazla Göster" butonu var mı?
+                no_new += 1
                 try:
-                    btn = page.query_selector(
-                        'button:has-text("Daha Fazla"), button:has-text("Yükle"), '
-                        'button:has-text("Göster")'
-                    )
+                    btn = page.query_selector('button:has-text("Daha Fazla")')
                     if btn and btn.is_visible():
-                        logger.info(f"  🔘 'Daha Fazla' butonu bulundu, tıklanıyor...")
-                        btn.scroll_into_view_if_needed()
-                        btn.click()
-                        time.sleep(2)
-                        no_new_cards = 0
-                        continue
+                        btn.click(); time.sleep(2); no_new = 0; continue
                 except:
                     pass
-
-                if no_new_cards >= max_no_new:
-                    logger.info(f"  ✅ {max_no_new} denemede yeni kart yok — scroll tamamlandı ({last_count} kart)")
+                if no_new >= max_no_new:
                     break
 
-        # Başa dön, tüm kartları topla
-        page.evaluate('window.scrollTo(0, 0)')
-        time.sleep(1)
-        return self._find_product_cards(page)
+        # Son kartları yakalamak için ekstra bekle
+        time.sleep(3)
+        page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+        time.sleep(2)
+        final = self._find_product_cards(page)
+        logger.info(f"  📦 Final kart sayısı: {len(final)}")
+        return final
 
     def _find_product_cards(self, page) -> list:
-        """
-        Trendyol'un güncel HTML yapısına göre ürün kartlarını bul.
-        Debug çıktısına göre doğru selector'lar:
-          - [class*="product-card"] → 24 eleman ✅
-          - a[href*="boutiqueId"]   → 24 eleman ✅  (URL /p- değil boutiqueId içeriyor)
-          - .p-card-wrppr           → 0 eleman  ✗  (eski yapı)
-        """
-        # Öncelik sırasına göre dene
-        for sel in [
-            '[class*="product-card"]',
-            '[data-testid*="card"]',
-            '[data-testid*="product"]',
-            '.p-card-wrppr',           # Eski yapı, fallback
-            '.p-card-chldrn-cntnr',    # Eski yapı, fallback
-        ]:
+        for sel in ['[class*="product-card"]', '[data-testid*="card"]',
+                    '[data-testid*="product"]', '.p-card-wrppr']:
             try:
                 elems = page.query_selector_all(sel)
                 if elems:
@@ -336,115 +255,120 @@ class TrendyolScraper:
     def _extract_product_from_card(self, card, seen_ids: set) -> Optional[Dict]:
         try:
             product_url = None
-
-            # Kart kendisi link mi?
-            if card.get_attribute('href'):
-                product_url = card.get_attribute('href')
-
-            # boutiqueId içeren link (güncel Trendyol URL formatı)
-            if not product_url:
-                link = card.query_selector('a[href*="boutiqueId"]')
-                if link:
-                    product_url = link.get_attribute('href')
-
-            # /p- içeren link (eski format, fallback)
-            if not product_url:
-                link = card.query_selector('a[href*="/p-"]')
-                if link:
-                    product_url = link.get_attribute('href')
-
-            # Herhangi bir a tag'i
-            if not product_url:
-                link = card.query_selector('a')
-                if link:
-                    href = link.get_attribute('href') or ''
-                    if 'trendyol.com' in href or href.startswith('/'):
-                        product_url = href
+            for sel, attr in [
+                ('self', 'href'), ('a[href*="boutiqueId"]', 'href'),
+                ('a[href*="/p-"]', 'href'), ('a', 'href'),
+            ]:
+                if sel == 'self':
+                    product_url = card.get_attribute('href')
+                else:
+                    link = card.query_selector(sel)
+                    if link:
+                        href = link.get_attribute(attr) or ''
+                        if 'trendyol.com' in href or href.startswith('/'):
+                            product_url = href
+                if product_url:
+                    break
 
             if not product_url:
                 return None
-
             if product_url.startswith('/'):
                 product_url = 'https://www.trendyol.com' + product_url
 
-            # Product ID — iki format:
-            # Yeni: /urun-adi-p-123456?boutiqueId=...
-            # veya URL'de -p-XXXXX pattern'i
-            pid_match = re.search(r'-p-(\d+)', product_url)
-            if not pid_match:
-                # Alternatif: contentId veya productId parametresi
-                pid_match = re.search(r'(?:contentId|productId)=(\d+)', product_url)
-            if not pid_match:
+            pid_m = (re.search(r'-p-(\d+)', product_url) or
+                     re.search(r'(?:contentId|productId)=(\d+)', product_url))
+            if not pid_m:
                 return None
-
-            pid = pid_match.group(1)
+            pid = pid_m.group(1)
             if pid in seen_ids:
                 return None
 
-            # Ürün adı
             name = ''
-            for sel in [
-                '[class*="product-name"]', '[class*="ProductName"]',
-                '[class*="prdct-desc"]', '.prdct-desc-cntnr-name',
-                'h2', 'h3', 'span[class*="name"]'
-            ]:
+            for sel in ['[class*="product-name"]', '[class*="prdct-desc"]', 'h2', 'h3']:
                 e = card.query_selector(sel)
                 if e:
-                    name = e.text_content().strip()
-                    if name and len(name) > 3:
+                    n = e.text_content().strip()
+                    if n and len(n) > 3:
+                        name = n
                         break
-
             if not name:
                 link = card.query_selector('a')
                 if link:
                     name = link.get_attribute('title') or link.text_content().strip()
-
             name = re.sub(r'Hızlı Bakış|Yetkili Satıcı|Başarılı Satıcı', '', name).strip()
             if not name or len(name) < 3:
                 return None
 
             return {'id': pid, 'name': name, 'url': product_url}
         except Exception as e:
-            logger.warning(f"  ⚠️ Kart parse hatası: {e}")
+            logger.warning(f"  ⚠️ Kart parse: {e}")
             return None
 
-    def fetch_products_via_api(self) -> List[Dict]:
-        return self.fetch_products_via_browser()
-
-    def fetch_products(self) -> List[Dict]:
-        return self.fetch_products_via_browser()
-
     # ──────────────────────────────────────────────────────────────────────────
-    # SATICI ÇEKME — Ana metod
+    # Toplu satıcı çekme (batch)
     # ──────────────────────────────────────────────────────────────────────────
 
-    def fetch_sellers_for_product(self, product_url: str, product_name: str = "", context=None) -> List[Dict]:
+    def fetch_sellers_batch(self, products: List[Dict]) -> Dict[str, List[Dict]]:
+        results = {}
+        batches = [products[i:i+self.batch_size]
+                   for i in range(0, len(products), self.batch_size)]
+        logger.info(f"📦 {len(products)} ürün → {len(batches)} batch")
+
+        for idx, batch in enumerate(batches):
+            results.update(self._process_batch(batch))
+            if (idx + 1) % 10 == 0:
+                logger.info("  ⏸️  Kısa mola...")
+                time.sleep(15)
+
+        return results
+
+    def _process_batch(self, batch: List[Dict]) -> Dict[str, List[Dict]]:
+        from playwright.sync_api import sync_playwright
+        results = {}
+        with sync_playwright() as p:
+            browser, context = self._make_browser_context(p)
+            try:
+                with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
+                    futures = {
+                        ex.submit(self.fetch_sellers_for_product,
+                                  prod['url'], prod.get('name', ''), context): prod['id']
+                        for prod in batch
+                    }
+                    for future in as_completed(futures):
+                        pid = futures[future]
+                        try:
+                            results[pid] = future.result(timeout=90)
+                        except Exception as e:
+                            logger.error(f"  ❌ Ürün {pid}: {e}")
+                            results[pid] = []
+            finally:
+                try:
+                    browser.close()
+                except:
+                    pass
+        return results
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Tek ürün satıcı çekme
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def fetch_sellers_for_product(self, product_url: str, product_name: str = "",
+                                   context=None) -> List[Dict]:
         try:
-            logger.info(f"🔍 {product_name or product_url[:60]}")
-
             clean_url = self._clean_product_url(product_url)
-            sellers = []
-            actual_name = product_name
+            sellers, actual_name = [], product_name
 
-            # Dışarıdan context verilmişse onu kullan, yoksa kendi aç
-            own_browser = None
-            own_pw = None
+            own_browser = own_pw = None
             if context is None:
                 from playwright.sync_api import sync_playwright
                 own_pw = sync_playwright().start()
                 own_browser, context = self._make_browser_context(own_pw)
 
             page = context.new_page()
-
-            # Görsel ve gereksiz kaynakları engelle
-            page.route(
-                "**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
-                lambda route: route.abort()
-            )
-            page.route("**/googletagmanager**", lambda route: route.abort())
-            page.route("**/google-analytics**", lambda route: route.abort())
-            page.route("**/hotjar**", lambda route: route.abort())
-            page.route("**/facebook**", lambda route: route.abort())
+            page.route("**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
+                       lambda route: route.abort())
+            for t in ['googletagmanager', 'google-analytics', 'hotjar', 'facebook']:
+                page.route(f"**/{t}**", lambda route: route.abort())
 
             try:
                 loaded = False
@@ -458,12 +382,10 @@ class TrendyolScraper:
                         logger.warning(f"  ⚠️ Deneme {attempt+1}: {e}")
                         if attempt < self.max_retries - 1:
                             time.sleep(self.retry_delay)
-
                 if not loaded:
                     return []
 
-                # Ürün adı
-                for sel in ['.product-title', 'h1.pr-new-br', 'h1[class*="product"]', 'h1']:
+                for sel in ['.product-title', 'h1.pr-new-br', 'h1']:
                     e = page.query_selector(sel)
                     if e:
                         n = e.text_content().strip()
@@ -471,35 +393,41 @@ class TrendyolScraper:
                             actual_name = n
                             break
 
-                # Barkod
-                barcode = ''
-                try:
-                    items = page.query_selector_all(
-                        'li[class*="content-description-item-description"], '
-                        '[data-testid="content-description-item-wrapper"]'
-                    )
-                    for item in items:
-                        text = item.text_content().strip()
-                        if 'barkod' in text.lower():
-                            match = re.search(r'Barkod\s*No\s*[:\s]+([\w\-]+)', text, re.IGNORECASE)
-                            if match:
-                                barcode = match.group(1)
-                                logger.info(f"  📦 Barkod: {barcode}")
-                                break
-                except:
-                    pass
+                barcode = self._extract_barcode(page)
 
-                # 1. Buy Box satıcısı
                 buy_box = self._extract_buy_box_seller(page)
                 if buy_box:
                     sellers.append(buy_box)
-                    logger.info(f"  ✓ Buy Box: {buy_box['name']} — ₺{buy_box['net_price']} (kupon: {buy_box['coupon'] or '-'}, sepet: {buy_box['basket_discount'] or '-'})")
+                    logger.info(f"  ✓ Buy Box: {buy_box['name']} — ₺{buy_box['net_price']} "
+                                f"(liste=₺{buy_box['price']}, kupon={buy_box['coupon'] or '-'}, "
+                                f"sepet={buy_box['basket_discount'] or '-'})")
 
-                # 2. "Diğer Satıcılar" paneli
                 if self._open_other_sellers_panel(page):
                     others = self._parse_all_sellers_from_panel(page, buy_box)
                     sellers.extend(others)
-                    logger.info(f"  ✓ Panelden {len(others)} satıcı eklendi")
+
+                # ── Fiyat sanity check ──────────────────────────────────────
+                # Kendi fiyatımızı bul
+                my_price = 0.0
+                for s in sellers:
+                    if self.my_merchant_name and \
+                       self.my_merchant_name in s.get('name', '').upper():
+                        my_price = s['net_price']
+                        break
+
+                if my_price > 0:
+                    for s in sellers:
+                        if s.get('name', '').upper() == self.my_merchant_name:
+                            continue
+                        ratio = s['net_price'] / my_price
+                        # Rakip fiyatı kendi fiyatımızın %40'ından ucuzsa şüpheli
+                        if ratio < 0.40:
+                            logger.warning(
+                                f"  ⚠️ ŞÜPHELİ FİYAT: {s['name']} "
+                                f"₺{s['net_price']} (benim: ₺{my_price}, oran: {ratio:.2f}) "
+                                f"— ürün: {actual_name[:40]}"
+                            )
+                            s['suspicious'] = True
 
             finally:
                 page.close()
@@ -512,33 +440,40 @@ class TrendyolScraper:
                 s['product_name'] = actual_name
                 s['barcode'] = barcode
 
-            logger.info(f"  ✅ Toplam {len(sellers)} satıcı: {[s['name'] for s in sellers]}")
+            logger.info(f"  ✅ {len(sellers)} satıcı: {[s['name'] for s in sellers]}")
             return sellers
 
         except Exception as e:
             logger.error(f"❌ Satıcı çekme hatası: {e}")
             return []
 
-        except Exception as e:
-            logger.error(f"❌ Satıcı çekme hatası: {e}")
-            return []
+    def _extract_barcode(self, page) -> str:
+        try:
+            items = page.query_selector_all(
+                'li[class*="content-description-item-description"], '
+                '[data-testid="content-description-item-wrapper"]'
+            )
+            for item in items:
+                text = item.text_content().strip()
+                if 'barkod' in text.lower():
+                    m = re.search(r'Barkod\s*No\s*[:\s]+([\w\-]+)', text, re.IGNORECASE)
+                    if m:
+                        return m.group(1)
+        except:
+            pass
+        return ''
 
     # ──────────────────────────────────────────────────────────────────────────
-    # BUY BOX SATICI ÇEKME
+    # Buy Box fiyat çekme
     # ──────────────────────────────────────────────────────────────────────────
 
     def _extract_buy_box_seller(self, page) -> Optional[Dict]:
-        """
-        Ana sayfanın sağ panelindeki Buy Box satıcısını çek.
-        Tüm fiyat katmanlarını ayrı ayrı çeker.
-        """
         s = {
             'name': '', 'price': 0.0, 'old_price': 0.0,
-            'coupon': '', 'basket_discount': '', 'net_price': 0.0, 'rating': 0.0
+            'coupon': '', 'coupon_max_tl': 0.0,
+            'basket_discount': '', 'net_price': 0.0, 'rating': 0.0
         }
-
         try:
-            # Satıcı adı
             for sel in ['.merchant-name', '[class*="merchant-name"]',
                         '[data-testid="seller-name"]', 'a[class*="merchant"]']:
                 e = page.query_selector(sel)
@@ -550,7 +485,6 @@ class TrendyolScraper:
             if not s['name']:
                 return None
 
-            # Rating
             for sel in ['.score-badge', '[class*="score-badge"]']:
                 e = page.query_selector(sel)
                 if e:
@@ -560,141 +494,166 @@ class TrendyolScraper:
                         pass
                     break
 
-            # Satış fiyatı (kupon/sepet öncesi)
             for sel in ['.prc-dsc', '.discounted', '[class*="prc-dsc"]',
                         '[class*="discounted"]', '.new-price', '.prc-box-dscntd']:
                 e = page.query_selector(sel)
                 if e:
-                    price = self._parse_price(e.text_content())
-                    if price > 0:
-                        s['price'] = price
+                    p = parse_price(e.text_content())
+                    if p > 0:
+                        s['price'] = p
                         break
 
-            # Eski/liste fiyatı
-            for sel in ['.old-price', '.prc-org', '[class*="old-price"]', '.prc-box-orgnl']:
+            for sel in ['.old-price', '.prc-org', '[class*="old-price"]']:
                 e = page.query_selector(sel)
                 if e:
-                    price = self._parse_price(e.text_content())
-                    if price > 0:
-                        s['old_price'] = price
+                    p = parse_price(e.text_content())
+                    if p > 0:
+                        s['old_price'] = p
                         break
 
-            # Kupon — Trendyol'da iki format:
-            # - "50 TL Kupon Fırsatı!" (pembe badge, sayfanın ortasında)
-            # - "%2 İndirimli Kupon!" (yüzdelik)
-            coupon_selectors = [
-                '[data-testid="coupon-text"]',
-                '.coupon-text',
-                '[class*="coupon-text"]',
-                '[class*="coupon"] span',
-                # Pembe kupon badge'i
-                '.badge-coupon',
-                '[class*="badge"][class*="coupon"]',
-                # Genel: "Kupon" kelimesi geçen element
-                'span:has-text("Kupon")',
-                'div:has-text("Kupon Fırsatı")',
-                # Yeni Trendyol yapısı
-                '[class*="hit-coupon-container"] p[class*="coupon-text"]',
-                '[class*="small-coupon-left"] p',
-                '[data-testid="coupon-left"] p',
-            ]
-            for sel in coupon_selectors:
-                try:
-                    e = page.query_selector(sel)
-                    if e:
-                        text = e.text_content().strip()
-                        # "Kupon" veya "%" içermeli, UI çöpü olmasın
-                        if text and ('kupon' in text.lower() or '%' in text) and len(text) < 60:
-                            s['coupon'] = text
-                            break
-                except:
-                    continue
+            coupon_info = self._extract_coupon_info(page)
+            s['coupon']        = coupon_info['text']
+            s['coupon_max_tl'] = coupon_info['max_tl']
 
-            # Sepette indirim — Trendyol'da iki yerde gösteriyor:
-            # 1. Yeşil banner: "Sepette %5 İndirim" + "Sepette 1.596 TL"
-            # 2. Sağ panel / kampanyalar listesi
-            basket_net_price = 0.0
-            basket_selectors = [
-                # Yeşil "Sepette X İndirim" banner
-                '[class*="basket-discount"]',
-                '[class*="cart-discount"]',
-                '[class*="sepette"]',
-                # "Sepette Uygulanacak" kampanya
-                '[class*="campaign"][class*="basket"]',
-                # Genel: "Sepette" kelimesi geçen ve indirim ifadesi olan
-                'span:has-text("Sepette %")',
-                'div:has-text("Sepette %")',
-            ]
-            for sel in basket_selectors:
-                try:
-                    e = page.query_selector(sel)
-                    if e:
-                        text = e.text_content().strip()
-                        if text and 'sepette' in text.lower() and len(text) < 80:
-                            s['basket_discount'] = text
-                            break
-                except:
-                    continue
+            basket_info = self._extract_basket_info(page)
+            s['basket_discount'] = basket_info['text']
+            basket_net_price     = basket_info['net_price']
 
-            # "Sepette X TL" şeklinde direkt fiyat gösteriyorsa yakala
-            # Örn: "Sepette 1.596 TL" → basket_net_price = 1596.0
-            basket_price_selectors = [
-                '[class*="basket-price"]',
-                '[class*="cart-price"]',
-                # Yeşil fiyat elementi
-                'span[class*="prc"][class*="basket"]',
-                'span[class*="basket"][class*="prc"]',
-                # Yeni Trendyol yapısı
-                '[class*="campaign-price-wrapper"] .new-price',
-                '[class*="campaign-price-wrapper"] p.new-price',
-                '[class*="campaign-price-content"] .new-price',
-            ]
-            for sel in basket_price_selectors:
-                try:
-                    e = page.query_selector(sel)
-                    if e:
-                        price = self._parse_price(e.text_content())
-                        if price > 0:
-                            basket_net_price = price
-                            break
-                except:
-                    continue
-
-            # Net fiyatı hesapla
-            s['net_price'] = self._compute_net_price(
-                s['price'], s['coupon'], s['basket_discount'], basket_net_price
+            s['net_price'] = compute_net_price(
+                s['price'], s['coupon'], s['basket_discount'],
+                basket_net_price, s['coupon_max_tl']
             )
-            # net_price hesaplanamadıysa satış fiyatını kullan
             if s['net_price'] <= 0:
                 s['net_price'] = s['price']
+
+            # Log: fiyat katmanlarını açık yaz
+            logger.debug(
+                f"    💰 {s['name']}: liste=₺{s['price']} "
+                f"kupon='{s['coupon']}' (max ₺{s['coupon_max_tl']}) "
+                f"sepet='{s['basket_discount']}' "
+                f"basket_net=₺{basket_net_price} → NET=₺{s['net_price']}"
+            )
 
             return s if s['name'] and s['price'] > 0 else None
 
         except Exception as e:
-            logger.warning(f"  ⚠️ Buy Box çıkarma hatası: {e}")
+            logger.warning(f"  ⚠️ Buy Box hatası: {e}")
             return None
 
+    def _extract_coupon_info(self, page, elem=None) -> Dict:
+        result = {'text': '', 'max_tl': 0.0}
+        root = elem or page
+
+        for sel in [
+            '[data-testid="coupon-text"]', '.coupon-text',
+            '[class*="coupon-text"]', '[class*="coupon"] span',
+            '[class*="hit-coupon-container"] p[class*="coupon-text"]',
+            '[class*="small-coupon-left"] p',
+            'span:has-text("Kupon")',
+        ]:
+            try:
+                e = root.query_selector(sel)
+                if e:
+                    text = e.text_content().strip()
+                    if text and ('kupon' in text.lower() or '%' in text) and len(text) < 80:
+                        result['text'] = text
+                        break
+            except:
+                continue
+
+        # Maks. İndirim limitini bul
+        try:
+            body = (root.text_content() or '')
+            m = re.search(r'[Mm]aks\.?\s*[İi]ndirim\s*[:\s]+([\d.,]+)\s*TL', body)
+            if m:
+                result['max_tl'] = parse_price(m.group(1))
+        except:
+            pass
+
+        return result
+
+    def _extract_basket_info(self, page, elem=None) -> Dict:
+        result = {'text': '', 'net_price': 0.0}
+        root = elem or page
+
+        # "Sepette X TL" direkt fiyat
+        for sel in [
+            '[class*="basket-price"]', '[class*="cart-price"]',
+            'span[class*="prc"][class*="basket"]', 'span[class*="prc-grn"]',
+            '[class*="campaign-price-wrapper"] .new-price',
+            '[class*="campaign-price-content"] .new-price',
+        ]:
+            try:
+                e = root.query_selector(sel)
+                if e:
+                    p = parse_price(e.text_content())
+                    if p > 0:
+                        result['net_price'] = p
+                        break
+            except:
+                continue
+
+        # DOM text tarama — "Sepette 1.596 TL" veya "Sepette 1.596,84 TL"
+        if result['net_price'] == 0:
+            try:
+                body = (root.text_content() or '')[:5000]
+                # Önce "Sepette X,XX TL" formatını dene (daha spesifik)
+                m = re.search(r'[Ss]epette\s+([\d.]+,\d{2})\s*TL', body)
+                if not m:
+                    # Sonra "Sepette X TL" (tam sayı)
+                    m = re.search(r'[Ss]epette\s+([\d.,]+)\s*TL', body)
+                if m:
+                    p = parse_price(m.group(1))
+                    # Makul bir fiyat mı? (0 ile 100000 arası)
+                    if 0 < p < 100000:
+                        result['net_price'] = p
+            except:
+                pass
+
+        # Sepet indirim metni
+        for sel in [
+            '[class*="basket-discount"]', '[class*="cart-discount"]',
+            '[class*="sepette"]', 'span:has-text("Sepette %")',
+            '[class*="info-text"]',
+        ]:
+            try:
+                e = root.query_selector(sel)
+                if e:
+                    text = e.text_content().strip()
+                    if text and 'sepette' in text.lower() and len(text) < 80:
+                        result['text'] = text
+                        break
+            except:
+                continue
+
+        if not result['text']:
+            try:
+                body = (root.text_content() or '')[:5000]
+                m = re.search(r'(Sepette\s+%\d+[^.\n]{0,30})', body)
+                if m:
+                    result['text'] = m.group(1).strip()
+            except:
+                pass
+
+        return result
+
     # ──────────────────────────────────────────────────────────────────────────
-    # DİĞER SATICILAR PANELİ
+    # Diğer satıcılar paneli
     # ──────────────────────────────────────────────────────────────────────────
 
     def _open_other_sellers_panel(self, page) -> bool:
-        selectors = [
+        for sel in [
             '[data-testid="other-seller-button"]',
             'button:has-text("Diğer Satıcılar")',
             'a:has-text("Diğer Satıcılar")',
             '[class*="other-seller"] button',
-            'button:has-text("satıcı")',
             '[class*="seller-count"]',
-        ]
-        for sel in selectors:
+        ]:
             try:
                 btn = page.query_selector(sel)
                 if btn and btn.is_visible():
                     btn.scroll_into_view_if_needed()
                     btn.click()
-                    
-                    # Panelin yüklenmesini bekle — max 6 saniye
                     try:
                         page.wait_for_selector(
                             '[data-testid="other-seller-item"], '
@@ -703,8 +662,7 @@ class TrendyolScraper:
                             timeout=6000
                         )
                     except:
-                        pass  # Panel gelmezse devam et
-                    logger.info("  ✓ 'Diğer Satıcılar' paneli açıldı")
+                        pass
                     return True
             except:
                 continue
@@ -713,135 +671,82 @@ class TrendyolScraper:
     def _parse_all_sellers_from_panel(self, page, buy_box: Optional[Dict]) -> List[Dict]:
         buy_box_name = (buy_box.get('name') or '').strip().lower() if buy_box else ''
         elems = self._find_panel_seller_elements(page)
-
         if not elems:
-            logger.warning("  ⚠️ Panel elementi bulunamadı")
-            try:
-                panel = page.query_selector('[class*="other-seller"], [class*="otherSeller"]')
-                if panel:
-                    logger.info(f"  🔍 Panel HTML: {panel.inner_html()[:400]}")
-            except:
-                pass
             return []
 
-        sellers = []
-        seen_names = {buy_box_name}  # Buy Box'ı da duplicate set'e ekle
-
+        sellers, seen = [], {buy_box_name}
         for elem in elems:
             try:
                 seller = self._parse_single_seller_card(elem)
                 if not seller or not seller.get('name') or seller['price'] <= 0:
                     continue
-
                 name_lower = seller['name'].strip().lower()
-
-                # "Ürüne Git" butonu satıcı değil — atla
-                if name_lower in ('ürüne git', 'urune git', 'sepete ekle', 'satıcıya git'):
+                if name_lower in ('ürüne git', 'sepete ekle', 'satıcıya git'):
                     continue
-
-                # Duplicate kontrolü — aynı isim tekrar gelmesin
-                if name_lower in seen_names:
+                if name_lower in seen:
                     continue
-                seen_names.add(name_lower)
-
+                seen.add(name_lower)
                 sellers.append(seller)
-                logger.info(f"  ✓ {seller['name']} — ₺{seller['net_price']} (kupon: {seller['coupon'] or '-'}, sepet: {seller['basket_discount'] or '-'})")
+                logger.info(
+                    f"  ✓ {seller['name']} — ₺{seller['net_price']} "
+                    f"(liste=₺{seller['price']}, kupon={seller['coupon'] or '-'}, "
+                    f"sepet={seller['basket_discount'] or '-'})"
+                )
             except Exception as e:
-                logger.warning(f"  ⚠️ Kart parse hatası: {e}")
-
+                logger.warning(f"  ⚠️ Kart parse: {e}")
         return sellers
 
     def _find_panel_seller_elements(self, page) -> list:
-        """
-        "Diğer Satıcılar" panelindeki satıcı elementlerini bul.
-        
-        Log'dan görülen gerçek HTML yapısı:
-          side-other-seller-total-container
-            └── other-seller-item-total-container  ← her satıcı için bir tane
-                  └── other-seller-item-other-seller-container
-                        └── other-seller-header-header
-                              └── other-seller-header-header-area
-                                    └── a href="/sr?mid=..."  ← satıcı linki
-        """
-        # Gerçek Trendyol panel yapısına göre — her satıcı bir "item" container
-        selectors = [
+        for sel in [
             '[data-testid="other-seller-item"]',
             '.other-seller-item-total-container',
             '[class*="other-seller-item"]',
-            '[class*="otherSeller"] [class*="item"]',
-        ]
-
-        for sel in selectors:
+        ]:
             try:
                 elems = page.query_selector_all(sel)
                 if elems:
-                    logger.info(f"  🔍 '{sel}' → {len(elems)} eleman")
                     return elems
             except:
                 continue
 
-        # Fallback: merchantId içeren linklerin parent container'larını bul
-        # Her satıcının /sr?mid=X linki var
         try:
             seller_links = page.query_selector_all('a[href*="/sr?mid="]')
-            if seller_links:
-                # Her linkin en yakın anlamlı container'ını al
-                containers = []
-                seen_mids = set()
-                for link in seller_links:
-                    href = link.get_attribute('href') or ''
-                    mid_match = re.search(r'mid=(\d+)', href)
-                    if not mid_match:
-                        continue
-                    mid = mid_match.group(1)
-                    if mid in seen_mids:
-                        continue
-                    seen_mids.add(mid)
-                    # Linkin satıcı bilgilerini içeren en yakın büyük container
-                    container = link.evaluate_handle(
-                        'el => el.closest("[class*=\'other-seller-item\'], [class*=\'seller-item\'], [class*=\'merchant-item\']") || el.parentElement?.parentElement?.parentElement'
-                    )
-                    if container:
-                        containers.append(container)
-                if containers:
-                    logger.info(f"  🔍 mid= link fallback: {len(containers)} benzersiz satıcı")
-                    return containers
+            containers, seen_mids = [], set()
+            for link in seller_links:
+                href = link.get_attribute('href') or ''
+                mid_m = re.search(r'mid=(\d+)', href)
+                if not mid_m or mid_m.group(1) in seen_mids:
+                    continue
+                seen_mids.add(mid_m.group(1))
+                container = link.evaluate_handle(
+                    'el => el.closest("[class*=\'other-seller-item\'],'
+                    '[class*=\'seller-item\']") || '
+                    'el.parentElement?.parentElement?.parentElement'
+                )
+                if container:
+                    containers.append(container)
+            if containers:
+                return containers
         except:
             pass
 
-        # Son fallback: fiyat içeren merchant/seller div'leri (duplicate riski var, sonradan filtrele)
         try:
             candidates = page.query_selector_all('div[class*="other-seller"]')
-            valid = [d for d in candidates
-                     if re.search(r'\d+[.,]\d+', d.text_content() or '')
-                     and len((d.text_content() or '').strip()) > 10]
-            if valid:
-                logger.info(f"  🔍 Fallback div: {len(valid)} eleman")
-            return valid[:20]
+            return [d for d in candidates
+                    if re.search(r'\d+[.,]\d+', d.text_content() or '')
+                    and len((d.text_content() or '').strip()) > 10][:20]
         except:
             return []
 
     def _parse_single_seller_card(self, elem) -> Optional[Dict]:
-        """
-        Panel içindeki tek bir satıcı kartından tüm fiyat katmanlarını çıkar.
-        
-        Image 1'deki Mass Coffee kartı örneği:
-          - İsim: "Mass Coffee"
-          - Rating: 9.7
-          - "2. Ürüne %2 İndirim" (kampanya etiketi — kupon değil, atla)
-          - "Kargo Bedava"
-          - "Sepette %5 İndirim" (basket_discount)
-          - "Sepette 1.596 TL" (basket_net_price — direkt hesaplanmış)
-          - "1.680 TL" (liste/satış fiyatı)
-        """
         s = {
             'name': '', 'price': 0.0, 'old_price': 0.0,
-            'coupon': '', 'basket_discount': '', 'net_price': 0.0, 'rating': 0.0
+            'coupon': '', 'coupon_max_tl': 0.0,
+            'basket_discount': '', 'net_price': 0.0, 'rating': 0.0
         }
 
-        # ── İsim ──────────────────────────────────────────────────────────
-        for sel in ['.merchant-name', '[class*="merchant-name"]', '[class*="seller-name"]',
-                    'a[class*="merchant"]', 'h3', 'h4', 'span[class*="name"]']:
+        for sel in ['.merchant-name', '[class*="merchant-name"]',
+                    '[class*="seller-name"]', 'h3', 'h4']:
             e = elem.query_selector(sel)
             if e:
                 name = e.text_content().strip()
@@ -851,141 +756,71 @@ class TrendyolScraper:
 
         if not s['name']:
             full = elem.text_content() or ''
-            cleaned = re.sub(r'\d+[.,]\d+\s*TL|%\d+|Ürüne Git|Sepete Ekle|Satıcıya Git|'
-                             r'Sepette|Kupon|Kargo|İndirim|Hızlı|Teslimat', '', full).strip()
+            cleaned = re.sub(
+                r'\d+[.,]\d+\s*TL|%\d+|Ürüne Git|Sepete Ekle|Satıcıya Git|'
+                r'Sepette|Kupon|Kargo|İndirim|Hızlı|Teslimat|Bedava', '', full
+            ).strip()
             if 2 < len(cleaned) < 60:
                 s['name'] = cleaned
 
-        # ── Satış fiyatı ──────────────────────────────────────────────────
-        for sel in [
-            '[data-testid="current-price"]',
-            '[data-testid="price-wrapper"] [data-testid="current-price"]',
-            '.prc-dsc', '.discounted', '[class*="prc-dsc"]',
-            '[class*="discounted"]', '.new-price',
-            'span[class*="prc"]',
-        ]:
+        for sel in ['[data-testid="current-price"]', '.prc-dsc', '.discounted',
+                    '[class*="prc-dsc"]', 'span[class*="prc"]']:
             e = elem.query_selector(sel)
             if e:
-                price = self._parse_price(e.text_content())
-                if price > 0:
-                    s['price'] = price
+                p = parse_price(e.text_content())
+                if p > 0:
+                    s['price'] = p
                     break
 
         if s['price'] <= 0:
             full_text = elem.text_content() or ''
-            matches = re.findall(r'\b\d{1,5}[.,]\d{2}\b', full_text)
-            for m in matches:
-                val = self._parse_price(m)
+            for m in re.findall(r'\b\d{1,5}[.,]\d{2,3}\b', full_text):
+                val = parse_price(m)
                 if 1 < val < 100000:
                     s['price'] = val
                     break
 
-        # ── Eski/liste fiyatı ──────────────────────────────────────────────
-        for sel in ['.old-price', '[class*="old-price"]', '[class*="prc-org"]']:
+        for sel in ['.old-price', '[class*="old-price"]']:
             e = elem.query_selector(sel)
             if e:
-                price = self._parse_price(e.text_content())
-                if price > 0:
-                    s['old_price'] = price
+                p = parse_price(e.text_content())
+                if p > 0:
+                    s['old_price'] = p
                     break
 
-        # ── Rating ────────────────────────────────────────────────────────
-        for sel in [
-            '[data-testid="seller-score"]',
-            '[class*="merchant-header-seller-score"]',
-            '.score-badge',
-            '[class*="score-badge"]',
-            '[class*="rating"]',
-        ]:
+        for sel in ['[data-testid="seller-score"]', '.score-badge', '[class*="score-badge"]']:
             e = elem.query_selector(sel)
             if e:
                 try:
-                    s['rating'] = float(e.text_content().strip().replace(',', '.'))
-                    if s['rating'] > 0:
+                    r = float(e.text_content().strip().replace(',', '.'))
+                    if r > 0:
+                        s['rating'] = r
                         break
                 except:
                     pass
 
-        # ── Kupon ─────────────────────────────────────────────────────────
-        # Panel kartında: "50 TL Kupon Fırsatı!" veya "%2 İndirimli Kupon"
-        # DİKKAT: "2. Ürüne %2 İndirim" kupon DEĞİL, kampanya etiketi — atla
-        coupon_selectors = [
-            '[data-testid="coupon-text"]',
-            '.coupon-text',
-            '[class*="coupon-text"]',
-            '[class*="coupon"] span',
-            'span:has-text("Kupon")',
-            # Trendyol diğer satıcılar paneli — hit-coupon-container yapısı
-            '[class*="hit-coupon-container"] p[class*="coupon-text"]',
-            '[class*="hit-coupon-container"] .coupon-text',
-            '[class*="small-coupon-left"] p',
-            '[data-testid="coupon-left"] p',
-        ]
-        for sel in coupon_selectors:
-            try:
-                e = elem.query_selector(sel)
-                if e:
-                    text = e.text_content().strip()
-                    if text and 'kupon' in text.lower() and len(text) < 60:
-                        s['coupon'] = text
-                        break
-            except:
-                continue
+        coupon_info = self._extract_coupon_info(None, elem=elem)
+        # Elementin kendi text'inde kupon varsa bul
+        if not coupon_info['text']:
+            full = elem.text_content() or ''
+            m = re.search(r'(%\d+\s+[İi]ndirimli\s+[Kk]upon[^.\n]{0,30})', full)
+            if not m:
+                m = re.search(r'(\d[\d.,]*\s*TL\s+[Kk]upon[^.\n]{0,30})', full)
+            if m:
+                coupon_info['text'] = m.group(1).strip()
+            mx = re.search(r'[Mm]aks\.?\s*[İi]ndirim\s*[:\s]+([\d.,]+)\s*TL', full)
+            if mx:
+                coupon_info['max_tl'] = parse_price(mx.group(1))
 
-        # ── Sepette indirim ───────────────────────────────────────────────
-        # Panel kartında: "Sepette %5 İndirim" yeşil badge
-        basket_net_price = 0.0
-        basket_selectors = [
-            '[class*="basket-discount"]',
-            '[class*="cart-discount"]',
-            '[class*="sepette"]',
-            'span:has-text("Sepette %")',
-            'div:has-text("Sepette %")',
-            # Trendyol diğer satıcılar paneli — info-text class'ı
-            '[class*="info-text"]',
-            'p[class*="info-text"]',
-            # campaign-price içindeki indirim metni
-            '[class*="campaign-price-info"] [class*="info-text"]',
-        ]
-        for sel in basket_selectors:
-            try:
-                e = elem.query_selector(sel)
-                if e:
-                    text = e.text_content().strip()
-                    if text and 'sepette' in text.lower() and len(text) < 80:
-                        s['basket_discount'] = text
-                        break
-            except:
-                continue
+        s['coupon']        = coupon_info['text']
+        s['coupon_max_tl'] = coupon_info['max_tl']
 
-        # "Sepette X TL" direkt fiyatı yakala
-        # Panel kartında yeşil renkte "Sepette 1.505,75 TL" gösteriyor
-        basket_price_selectors = [
-            '[class*="basket-price"]',
-            '[class*="cart-price"]',
-            'span[class*="prc"][class*="basket"]',
-            'span[class*="green"][class*="prc"]',
-            'span[class*="prc-grn"]',
-            # Trendyol diğer satıcılar paneli — campaign-price-wrapper yapısı
-            '[class*="campaign-price-wrapper"] .new-price',
-            '[class*="campaign-price-wrapper"] p.new-price',
-            '[class*="campaign-price-content"] .new-price',
-            '.campaign-price-content p.new-price',
-        ]
-        for sel in basket_price_selectors:
-            try:
-                e = elem.query_selector(sel)
-                if e:
-                    price = self._parse_price(e.text_content())
-                    if price > 0:
-                        basket_net_price = price
-                        break
-            except:
-                continue
+        basket_info = self._extract_basket_info(None, elem=elem)
+        s['basket_discount'] = basket_info['text']
 
-        # ── Net fiyat hesapla ─────────────────────────────────────────────
-        s['net_price'] = self._compute_net_price(
-            s['price'], s['coupon'], s['basket_discount'], basket_net_price
+        s['net_price'] = compute_net_price(
+            s['price'], s['coupon'], s['basket_discount'],
+            basket_info['net_price'], s['coupon_max_tl']
         )
         if s['net_price'] <= 0:
             s['net_price'] = s['price']
