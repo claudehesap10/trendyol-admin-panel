@@ -71,12 +71,17 @@ export default function Reports() {
   const pageSize = 25;
 
   // ─── Gruplama: Buy Box = en ucuz satıcı ──────────────────────────────────
+  // Gruplama anahtarı olarak URL kullanılır (query string temizlenmiş).
+  // Aynı isme sahip farklı ürünlerin birleştirilmesini önler.
   const groupedProducts = useMemo(() => {
     const groups = new Map<string, GroupedProduct>();
     data.forEach((item) => {
       const productName = item["Ürün Adı"] || "";
       const productLink = item["Ürün Linki"] || "";
       if (!productName) return;
+      // URL'den query parametrelerini temizle ve birincil anahtar olarak kullan
+      const cleanLink = productLink.replace(/\?.*$/, "");
+      const groupKey = cleanLink || productName;
       const seller: SellerInfo = {
         sellerName: item["Satıcı"] || "",
         originalPrice: item["Orijinal Fiyat (TL)"] || 0,
@@ -87,8 +92,8 @@ export default function Reports() {
         notes: item["Notlar"] || "",
         isBuyBox: false,
       };
-      if (!groups.has(productName)) {
-        groups.set(productName, { 
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { 
           productName, 
           productLink, 
           buyBoxPrice: 0, 
@@ -98,7 +103,7 @@ export default function Reports() {
           allSellers: [seller] 
         });
       } else {
-        const group = groups.get(productName)!;
+        const group = groups.get(groupKey)!;
         if (!group.barcode && item["Barkod"]) {
           group.barcode = String(item["Barkod"]);
         }
