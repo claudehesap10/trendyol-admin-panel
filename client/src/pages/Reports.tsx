@@ -79,9 +79,11 @@ export default function Reports() {
       const productName = item["Ürün Adı"] || "";
       const productLink = item["Ürün Linki"] || "";
       if (!productName) return;
-      // URL'den query parametrelerini temizle ve birincil anahtar olarak kullan
+      // Trendyol ürün ID'sini ('-p-XXXXX') birincil anahtar olarak kullan.
+      // Scraper zaten bu ID ile deduplikasyon yaptığı için tam 257 benzersiz grup oluşur.
+      const pidMatch = productLink.match(/-p-(\d+)/);
       const cleanLink = productLink.replace(/\?.*$/, "");
-      const groupKey = cleanLink || productName;
+      const groupKey = pidMatch ? `p-${pidMatch[1]}` : (cleanLink || productName);
       const seller: SellerInfo = {
         sellerName: item["Satıcı"] || "",
         originalPrice: item["Orijinal Fiyat (TL)"] || 0,
@@ -578,7 +580,7 @@ export default function Reports() {
                       const iAmBuyBox = product.buyBoxSeller.trim().toLowerCase() === myName;
                       const iAmSeller = product.allSellers.some(s => s.sellerName.trim().toLowerCase() === myName);
                       return (
-                        <Fragment key={product.productLink.replace(/\?.*$/, "") || product.productName}>
+                        <Fragment key={product.productLink.match(/-p-(\d+)/)?.[1] || product.productLink.replace(/\?.*$/, "") || product.productName}>
                           <TableRow
                             onClick={() => { if (hasMultipleSellers) toggleRow(product.productName); }}
                             className={`transition-all duration-200 ${hasMultipleSellers ? "cursor-pointer" : ""} ${isExpanded ? "bg-muted/60 border-l-2 border-l-emerald-500"
@@ -721,7 +723,7 @@ export default function Reports() {
                   const iAmBuyBox = product.buyBoxSeller.trim().toLowerCase() === myName;
                   const iAmSeller = product.allSellers.some(s => s.sellerName.trim().toLowerCase() === myName);
                   return (
-                    <div key={product.productLink.replace(/\?.*$/, "") || product.productName} className={`border rounded-xl overflow-hidden ${isExpanded ? "border-emerald-400" : ""}`}>
+                    <div key={product.productLink.match(/-p-(\d+)/)?.[1] || product.productLink.replace(/\?.*$/, "") || product.productName} className={`border rounded-xl overflow-hidden ${isExpanded ? "border-emerald-400" : ""}`}>
                       {/* Kart başlığı */}
                       <div
                         className="flex items-start gap-2.5 p-3 active:bg-muted/20"
