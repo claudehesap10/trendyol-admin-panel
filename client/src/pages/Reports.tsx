@@ -79,11 +79,17 @@ export default function Reports() {
       const productName = item["Ürün Adı"] || "";
       const productLink = item["Ürün Linki"] || "";
       if (!productName) return;
-      // Trendyol ürün ID'sini ('-p-XXXXX') birincil anahtar olarak kullan.
-      // Scraper zaten bu ID ile deduplikasyon yaptığı için tam 257 benzersiz grup oluşur.
-      const pidMatch = productLink.match(/-p-(\d+)/);
+      // Trendyol ürün ID'sini birincil anahtar olarak kullan.
+      // Python scraper ile aynı mantık: önce '-p-XXXXX', sonra contentId=, productId=
+      // Hiçbiri yoksa: temizlenmiş URL + isim (çift güvenlik)
       const cleanLink = productLink.replace(/\?.*$/, "");
-      const groupKey = pidMatch ? `p-${pidMatch[1]}` : (cleanLink || productName);
+      const pidMatch = productLink.match(/-p-(\d+)/) ||
+                       productLink.match(/[?&]contentId=(\d+)/) ||
+                       productLink.match(/[?&]productId=(\d+)/);
+      const barcodeVal = String(item["Barkod"] || "").trim();
+      const groupKey = pidMatch
+        ? `p-${pidMatch[1]}`
+        : (barcodeVal ? `b-${barcodeVal}` : (cleanLink || productName));
       const seller: SellerInfo = {
         sellerName: item["Satıcı"] || "",
         originalPrice: item["Orijinal Fiyat (TL)"] || 0,
