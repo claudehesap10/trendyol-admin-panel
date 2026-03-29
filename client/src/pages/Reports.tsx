@@ -578,7 +578,7 @@ export default function Reports() {
                       const iAmBuyBox = product.buyBoxSeller.trim().toLowerCase() === myName;
                       const iAmSeller = product.allSellers.some(s => s.sellerName.trim().toLowerCase() === myName);
                       return (
-                        <Fragment key={product.productName}>
+                        <Fragment key={product.productLink.replace(/\?.*$/, "") || product.productName}>
                           <TableRow
                             onClick={() => { if (hasMultipleSellers) toggleRow(product.productName); }}
                             className={`transition-all duration-200 ${hasMultipleSellers ? "cursor-pointer" : ""} ${isExpanded ? "bg-muted/60 border-l-2 border-l-emerald-500"
@@ -721,7 +721,7 @@ export default function Reports() {
                   const iAmBuyBox = product.buyBoxSeller.trim().toLowerCase() === myName;
                   const iAmSeller = product.allSellers.some(s => s.sellerName.trim().toLowerCase() === myName);
                   return (
-                    <div key={product.productName} className={`border rounded-xl overflow-hidden ${isExpanded ? "border-emerald-400" : ""}`}>
+                    <div key={product.productLink.replace(/\?.*$/, "") || product.productName} className={`border rounded-xl overflow-hidden ${isExpanded ? "border-emerald-400" : ""}`}>
                       {/* Kart başlığı */}
                       <div
                         className="flex items-start gap-2.5 p-3 active:bg-muted/20"
