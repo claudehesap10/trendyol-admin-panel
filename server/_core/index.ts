@@ -67,7 +67,7 @@ async function startServer() {
     }
     
     const data: any[] = [];
-    for (let row = 5; row <= range.e.r; row++) {
+    for (let row = 5; row <= range.e.r + 1; row++) {
       const rowData: any = {};
       for (let col = range.s.c; col <= range.e.c; col++) {
         const cellAddress = XLSX.utils.encode_col(col) + row;
@@ -233,7 +233,7 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
+  const preferredPort = parseInt(process.env.PORT || "5000");
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
