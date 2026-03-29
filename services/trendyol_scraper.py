@@ -47,10 +47,24 @@ def compute_net_price(price: float, coupon: str, basket_discount: str,
                        basket_net_price: float, coupon_max_tl: float = 0.0) -> float:
     """
     Öncelik:
-      1. Sepette X TL direkt gösteriliyorsa → kullan
+      1. Sepette X TL direkt gösteriliyorsa → kullan (akıl sağlığı kontrolü ile)
       2. Yoksa: price - kupon - sepet (kupon max TL limitini uygula)
+
+    Akıl sağlığı kontrolü: sepette fiyatı, liste fiyatının %35'inden düşükse
+    ve hiç kupon/sepet indirimi yoksa, bu değer büyük ihtimalle başka bir
+    üründen (öneri widget'ı vb.) yanlış yakalanmıştır — atla.
     """
-    if basket_net_price > 0:
+    if basket_net_price > 0 and price > 0:
+        ratio = basket_net_price / price
+        has_discount = bool(coupon or basket_discount)
+        if ratio >= 0.35 or has_discount:
+            return round(basket_net_price, 2)
+        else:
+            logger.warning(
+                f"  ⚠️ ŞÜPHELİ SEPET FİYATI: basket_net=₺{basket_net_price} "
+                f"liste=₺{price} (oran={ratio:.2f}) kupon='{coupon}' — atlanıyor"
+            )
+    elif basket_net_price > 0:
         return round(basket_net_price, 2)
 
     net = price
@@ -561,9 +575,9 @@ class TrendyolScraper:
             except:
                 continue
 
-        # Maks. İndirim limitini bul
+        # Maks. İndirim limitini bul (ilk 5000 karakter ile sınırlı)
         try:
-            body = (root.text_content() or '')
+            body = (root.text_content() or '')[:5000]
             m = re.search(r'[Mm]aks\.?\s*[İi]ndirim\s*[:\s]+([\d.,]+)\s*TL', body)
             if m:
                 result['max_tl'] = parse_price(m.group(1))
