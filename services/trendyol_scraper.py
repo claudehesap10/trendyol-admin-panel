@@ -420,6 +420,57 @@ class TrendyolScraper:
                     others = self._parse_all_sellers_from_panel(page, buy_box)
                     sellers.extend(others)
 
+                # ── Esvento eksikse merchantId URL ile tekrar ziyaret et ────
+                if self.merchant_id and self.my_merchant_name:
+                    esvento_found = any(
+                        self.my_merchant_name in s.get('name', '').upper()
+                        for s in sellers
+                    )
+                    if not esvento_found:
+                        try:
+                            merchant_url = f"{clean_url}?merchantId={self.merchant_id}"
+                            ep = context.new_page()
+                            ep.route("**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico}",
+                                     lambda r: r.abort())
+                            ep.goto(merchant_url, wait_until='domcontentloaded', timeout=30000)
+                            time.sleep(1.5)
+                            es = self._extract_buy_box_seller(ep)
+                            ep.close()
+                            if es and self.my_merchant_name in es.get('name', '').upper():
+                                sellers.append(es)
+                                logger.info(
+                                    f"  ✅ {es['name']} merchantId ziyareti ile eklendi: "
+                                    f"₺{es['net_price']} (kupon={es['coupon'] or '-'})"
+                                )
+                        except Exception as _me:
+                            logger.warning(f"  ⚠️ Merchant URL ziyareti başarısız: {_me}")
+
+                # ── Ürün seviyesi kupon: en iyi kuponu tüm satıcılara yay ──
+                best_coupon, best_coupon_max = '', 0.0
+                for s in sellers:
+                    if s.get('coupon'):
+                        curr_max = s.get('coupon_max_tl', 0.0)
+                        if not best_coupon or curr_max > best_coupon_max:
+                            best_coupon = s['coupon']
+                            best_coupon_max = curr_max
+
+                if best_coupon:
+                    for s in sellers:
+                        if not s.get('coupon'):
+                            s['coupon'] = best_coupon
+                            s['coupon_max_tl'] = best_coupon_max
+                            new_net = compute_net_price(
+                                s['price'], s['coupon'],
+                                s.get('basket_discount', ''),
+                                0.0, s['coupon_max_tl']
+                            )
+                            if 0 < new_net < s['price']:
+                                s['net_price'] = new_net
+                                logger.info(
+                                    f"  📋 Kupon yayıldı → {s['name']}: "
+                                    f"₺{s['price']} × {best_coupon} = ₺{new_net}"
+                                )
+
                 # ── Fiyat sanity check ──────────────────────────────────────
                 # Kendi fiyatımızı bul
                 my_price = 0.0
@@ -497,6 +548,12 @@ class TrendyolScraper:
                         s['name'] = name
                         break
             if not s['name']:
+                return None
+
+            # Buton metinlerini satıcı adı olarak kabul etme
+            _INVALID = {'ürüne git', 'sepete ekle', 'satıcıya git',
+                        'mağazaya git', 'kurumsal fatura', 'takip et kazan'}
+            if s['name'].strip().lower() in _INVALID:
                 return None
 
             for sel in ['.score-badge', '[class*="score-badge"]']:
