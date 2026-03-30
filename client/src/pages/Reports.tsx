@@ -413,7 +413,8 @@ export default function Reports() {
                     style={{ width: `${(buyBoxStats.buyBoxLost / groupedProducts.length) * 100}%` }}
                   />
                 </div>
-                <div className="flex justify-end text-[10px] font-bold text-zinc-400 px-1 uppercase tracking-tighter">
+                <div className="flex justify-between text-[10px] font-bold text-zinc-400 px-1 uppercase tracking-tighter">
+                  <span className="text-zinc-500">Toplam: {groupedProducts.length} ürün</span>
                   <span className="text-emerald-600">% {Math.round(((buyBoxStats.buyBoxMine + buyBoxStats.buyBoxRisky) / groupedProducts.length) * 100)} Başarı</span>
                 </div>
               </div>
