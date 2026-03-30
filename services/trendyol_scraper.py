@@ -417,8 +417,39 @@ class TrendyolScraper:
                                 f"sepet={buy_box['basket_discount'] or '-'})")
 
                 if self._open_other_sellers_panel(page):
-                    others = self._parse_all_sellers_from_panel(page, buy_box)
-                    sellers.extend(others)
+                    # Her satıcının kendi sayfasını ziyaret et (merchantId URL'i)
+                    mids = self._get_seller_merchant_urls(page, clean_url)
+                    if mids:
+                        for mu in mids:
+                            try:
+                                sp = context.new_page()
+                                sp.route(
+                                    "**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
+                                    lambda route: route.abort()
+                                )
+                                sp.goto(mu['url'], wait_until='domcontentloaded', timeout=30000)
+                                time.sleep(1.0)
+                                sd = self._extract_buy_box_seller(sp)
+                                sp.close()
+                                if sd and sd['price'] > 0:
+                                    name_lower = sd['name'].strip().lower()
+                                    already = any(
+                                        s['name'].strip().lower() == name_lower
+                                        for s in sellers
+                                    )
+                                    if not already:
+                                        sellers.append(sd)
+                                        logger.info(
+                                            f"  ✓ {sd['name']} — ₺{sd['net_price']} "
+                                            f"(liste=₺{sd['price']}, kupon={sd['coupon'] or '-'}, "
+                                            f"sepet={sd['basket_discount'] or '-'})"
+                                        )
+                            except Exception as _se:
+                                logger.warning(f"  ⚠️ Satıcı sayfası: {_se}")
+                    else:
+                        # Fallback: panelden direkt parse (merchantId bulunamazsa)
+                        others = self._parse_all_sellers_from_panel(page, buy_box)
+                        sellers.extend(others)
 
                 # ── Esvento eksikse merchantId URL ile tekrar ziyaret et ────
                 if self.merchant_id and self.my_merchant_name:
@@ -766,6 +797,66 @@ class TrendyolScraper:
             except Exception as e:
                 logger.warning(f"  ⚠️ Kart parse: {e}")
         return sellers
+
+    def _get_seller_merchant_urls(self, page, clean_url: str) -> List[Dict]:
+        """
+        'Diğer Satıcılar' panelindeki her satıcının merchantId URL'ini çıkar.
+        'Ürüne Git' butonlarının href'lerinden merchantId alınarak
+        clean_url?merchantId=XXX formatında URL listesi döner.
+        """
+        merchant_urls = []
+        seen_mids = set()
+        try:
+            # Önce merchantId içeren linkleri ara (en doğrudan yol)
+            for link_sel in [
+                'a[href*="merchantId="]',
+                '[class*="other-seller-item"] a[href*="-p-"]',
+                '[data-testid*="other-seller"] a[href*="-p-"]',
+            ]:
+                links = page.query_selector_all(link_sel)
+                for link in links:
+                    href = link.get_attribute('href') or ''
+                    if not href:
+                        continue
+                    if href.startswith('/'):
+                        href = 'https://www.trendyol.com' + href
+                    mid_m = re.search(r'merchantId=(\d+)', href)
+                    if mid_m:
+                        mid = mid_m.group(1)
+                        if mid not in seen_mids:
+                            seen_mids.add(mid)
+                            merchant_urls.append({
+                                'mid': mid,
+                                'url': f"{clean_url}?merchantId={mid}"
+                            })
+                if merchant_urls:
+                    break
+
+            if not merchant_urls:
+                # Fallback: ürün ID'sine göre tüm linkleri tara
+                pid_m = re.search(r'-p-(\d+)', clean_url)
+                if pid_m:
+                    all_links = page.query_selector_all(
+                        f'a[href*="-p-{pid_m.group(1)}"]'
+                    )
+                    for link in all_links:
+                        href = link.get_attribute('href') or ''
+                        mid_m = re.search(r'merchantId=(\d+)', href)
+                        if mid_m:
+                            mid = mid_m.group(1)
+                            if mid not in seen_mids:
+                                seen_mids.add(mid)
+                                merchant_urls.append({
+                                    'mid': mid,
+                                    'url': f"{clean_url}?merchantId={mid}"
+                                })
+
+        except Exception as e:
+            logger.warning(f"  ⚠️ Merchant URL çıkarma hatası: {e}")
+
+        if merchant_urls:
+            logger.info(f"  🔗 {len(merchant_urls)} satıcı merchantId bulundu")
+        return merchant_urls
 
     def _find_panel_seller_elements(self, page) -> list:
         for sel in [
