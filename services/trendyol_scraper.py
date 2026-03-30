@@ -476,32 +476,6 @@ class TrendyolScraper:
                         except Exception as _me:
                             logger.warning(f"  ⚠️ Merchant URL ziyareti başarısız: {_me}")
 
-                # ── Ürün seviyesi kupon: en iyi kuponu tüm satıcılara yay ──
-                best_coupon, best_coupon_max = '', 0.0
-                for s in sellers:
-                    if s.get('coupon'):
-                        curr_max = s.get('coupon_max_tl', 0.0)
-                        if not best_coupon or curr_max > best_coupon_max:
-                            best_coupon = s['coupon']
-                            best_coupon_max = curr_max
-
-                if best_coupon:
-                    for s in sellers:
-                        if not s.get('coupon'):
-                            s['coupon'] = best_coupon
-                            s['coupon_max_tl'] = best_coupon_max
-                            new_net = compute_net_price(
-                                s['price'], s['coupon'],
-                                s.get('basket_discount', ''),
-                                0.0, s['coupon_max_tl']
-                            )
-                            if 0 < new_net < s['price']:
-                                s['net_price'] = new_net
-                                logger.info(
-                                    f"  📋 Kupon yayıldı → {s['name']}: "
-                                    f"₺{s['price']} × {best_coupon} = ₺{new_net}"
-                                )
-
                 # ── Fiyat sanity check ──────────────────────────────────────
                 # Kendi fiyatımızı bul
                 my_price = 0.0
