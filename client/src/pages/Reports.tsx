@@ -136,7 +136,8 @@ export default function Reports() {
     const myName = mySellerName.trim().toLowerCase();
     groupedProducts.forEach(product => {
       const myData = product.allSellers.find(s => s.sellerName.trim().toLowerCase() === myName);
-      if (!myData) { notMySeller++; return; }
+      // Esvento tüm ürünleri satıyor; listede yoksa tarama hatası = KAYBETTİM say
+      if (!myData) { buyBoxLost++; return; }
       const iAmCheapest = product.allSellers[0].sellerName.trim().toLowerCase() === myName;
       if (iAmCheapest) {
         const cheapestRival = product.allSellers.find(s => s.sellerName.trim().toLowerCase() !== myName);
@@ -179,7 +180,7 @@ export default function Reports() {
     } else if (quickFilter === 'lost') {
       filtered = filtered.filter(product => {
         const myData = product.allSellers.find(s => s.sellerName.toLowerCase() === myName);
-        if (!myData) return false;
+        if (!myData) return true; // Esvento listede yok = kaybedildi
         return product.allSellers[0].sellerName.toLowerCase() !== myName;
       });
     } else if (quickFilter === 'risky') {
