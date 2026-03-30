@@ -67,7 +67,9 @@ async function startServer() {
     }
     
     const data: any[] = [];
-    for (let row = 5; row <= range.e.r + 1; row++) {
+    // range.e.r bazen son satırı eksik raporlar (openpyxl !ref sorunu).
+    // +3 ile güvenli üst sınır; boş satırlar aşağıdaki any(v !== "") kontrolüyle elenir.
+    for (let row = 5; row <= range.e.r + 3; row++) {
       const rowData: any = {};
       for (let col = range.s.c; col <= range.e.c; col++) {
         const cellAddress = XLSX.utils.encode_col(col) + row;
