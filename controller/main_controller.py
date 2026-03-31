@@ -91,10 +91,22 @@ class MainController:
             self.scraper = TrendyolScraper(
                 self.config.TRENDYOL_STORE_URL,
                 max_retries=self.config.MAX_RETRIES,
-                retry_delay=self.config.RETRY_DELAY
+                retry_delay=self.config.RETRY_DELAY,
+                my_merchant_name=self.config.MY_MERCHANT_NAME,
             )
             if not self.scraper.initialize():
                 return False
+
+            # Debug/teşhis logları (Esvento'nun eklenmemesi sorununu anlamak için kritik)
+            try:
+                logger.info(
+                    "🔎 Scraper kimlik bilgileri: merchant_id=%s, my_merchant_name=%s, store_url=%s",
+                    getattr(self.scraper, "merchant_id", None),
+                    getattr(self.scraper, "my_merchant_name", None),
+                    self.config.TRENDYOL_STORE_URL,
+                )
+            except Exception:
+                pass
             
             # Telegram
             self.telegram = TelegramService(
