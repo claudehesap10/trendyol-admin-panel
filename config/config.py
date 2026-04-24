@@ -31,6 +31,9 @@ class Config:
     
     # ByBox Fiyat Takibi Ayarları
     MY_MERCHANT_NAME: str = os.getenv("MY_MERCHANT_NAME", "Esvento")  # Kendi mağaza isminiz
+    # Birden fazla mağaza adı varyasyonu (virgülle): örn "ESVENTO,LAVAZZA ESVENTO"
+    # Boşsa otomatik olarak MY_MERCHANT_NAME kullanılır.
+    MY_MERCHANT_ALIASES: str = os.getenv("MY_MERCHANT_ALIASES", "")
     ENABLE_PRICE_ALERTS: bool = os.getenv("ENABLE_PRICE_ALERTS", "true").lower() == "true"
     PRICE_ALERT_THRESHOLD: float = float(os.getenv("PRICE_ALERT_THRESHOLD", "0.01"))  # Minimum fiyat farkı (TL)
     

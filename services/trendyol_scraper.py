@@ -114,61 +114,32 @@ class TrendyolScraper:
         self.my_merchant_name = my_merchant_name.upper()
         self.merchant_id      = self._extract_merchant_id(store_url)
 
-    def _extract_merchant_id(self, url: str) -> Optional[str]:
-        m = re.search(r'mid=(\d+)|merchantId=(\d+)', url)
-        return (m.group(1) or m.group(2)) if m else None
+        # Alias listesi (örn: ["ESVENTO", "LAVAZZA ESVENTO"]) — controller'dan ayrıca set edilebilir
+        self.my_merchant_aliases: List[str] = []
+        if self.my_merchant_name:
+            self.my_merchant_aliases = [self.my_merchant_name]
 
-    def _clean_product_url(self, url: str) -> str:
-        """
-        Tüm query string'i kaldır — sadece /ürün-adı-p-XXXXX kalsın.
+    def _normalize_merchant_text(self, text: str) -> str:
+        if not text:
+            return ""
+        # Harf/rakam dışını boşluk yap, çoklu boşluğu tek boşluğa indir
+        t = re.sub(r'[^0-9A-Za-zÇĞİÖŞÜçğıöşü]+', ' ', str(text))
+        t = re.sub(r'\s+', ' ', t).strip().upper()
+        return t
 
-        Neden önemli:
-          Trendyol URL'de boutiqueId veya merchantId varsa O mağazanın
-          fiyatını Buy Box olarak gösteriyor. Temiz URL açılınca gerçek
-          Buy Box sahibi görünür.
-
-        Örnek:
-          /lavazza/rossa-p-123?boutiqueId=61&merchantId=1126746
-          → https://www.trendyol.com/lavazza/rossa-p-123
-        """
-        clean = re.sub(r'\?.*$', '', url.strip())
-        if clean.startswith('/'):
-            clean = 'https://www.trendyol.com' + clean
-        # http → https
-        if clean.startswith('http://'):
-            clean = 'https://' + clean[7:]
-        return clean
-
-    def _make_browser_context(self, playwright):
-        is_ci = os.getenv('CI', 'false').lower() == 'true'
-        args = ['--disable-blink-features=AutomationControlled']
-        if is_ci:
-            args += [
-                '--no-sandbox', '--disable-dev-shm-usage',
-                '--disable-gpu', '--single-process',
-            ]
-        browser = playwright.chromium.launch(headless=is_ci, args=args)
-        context = browser.new_context(
-            user_agent=(
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/145.0.0.0 Safari/537.36'
-            ),
-            viewport={'width': 1920, 'height': 1080},
-            locale='tr-TR',
-            timezone_id='Europe/Istanbul',
-        )
-        return browser, context
-
-    def initialize(self) -> bool:
-        try:
-            from playwright.sync_api import sync_playwright  # noqa
-            return True
-        except ImportError:
-            import subprocess
-            subprocess.check_call(['pip', 'install', 'playwright'])
-            subprocess.check_call(['playwright', 'install', 'chromium'])
-            return True
+    def _is_my_merchant(self, seller_name: str) -> bool:
+        if not seller_name:
+            return False
+        if not self.my_merchant_aliases and not self.my_merchant_name:
+            return False
+        normalized = self._normalize_merchant_text(seller_name)
+        aliases = self.my_merchant_aliases or ([self.my_merchant_name] if self.my_merchant_name else [])
+        for a in aliases:
+            if not a:
+                continue
+            if self._normalize_merchant_text(a) in normalized:
+                return True
+        return False
 
     # ──────────────────────────────────────────────────────────────────────────
     # Ürün listesi (değişmedi)
@@ -515,9 +486,9 @@ class TrendyolScraper:
                         sellers.extend(others)
 
                 # ── Kendi mağazam eksikse merchantId URL ile tekrar ziyaret et ────
-                if self.merchant_id and self.my_merchant_name:
+                if self.merchant_id and (self.my_merchant_name or self.my_merchant_aliases):
                     esvento_found = any(
-                        self.my_merchant_name in s.get('name', '').upper()
+                        self._is_my_merchant(s.get('name', ''))
                         for s in sellers
                     )
                     if not esvento_found:
@@ -556,7 +527,7 @@ class TrendyolScraper:
                                     "  ↳ merchantId buybox: name=%s price=%s net=%s",
                                     es.get('name'), es.get('price'), es.get('net_price')
                                 )
-                            if es and self.my_merchant_name in es.get('name', '').upper():
+                            if es and self._is_my_merchant(es.get('name', '')):
                                 sellers.append(es)
                                 logger.info(
                                     f"  ✅ {es['name']} merchantId ziyareti ile eklendi: "
@@ -575,8 +546,7 @@ class TrendyolScraper:
                 # Kendi fiyatımızı bul
                 my_price = 0.0
                 for s in sellers:
-                    if self.my_merchant_name and \
-                       self.my_merchant_name in s.get('name', '').upper():
+                    if (self.my_merchant_name or self.my_merchant_aliases) and self._is_my_merchant(s.get('name', '')):
                         my_price = s['net_price']
                         break
 

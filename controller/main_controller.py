@@ -94,15 +94,27 @@ class MainController:
                 retry_delay=self.config.RETRY_DELAY,
                 my_merchant_name=self.config.MY_MERCHANT_NAME,
             )
+
+            # Alias'ları aktar (örn: ESVENTO,LAVAZZA ESVENTO)
+            try:
+                aliases_raw = getattr(self.config, "MY_MERCHANT_ALIASES", "") or ""
+                aliases = [a.strip() for a in aliases_raw.split(',') if a.strip()]
+                if aliases:
+                    # normalize/uppercase TrendyolScraper içinde yapılıyor; burada sadece listeyi geçiyoruz
+                    self.scraper.my_merchant_aliases = [a.upper() for a in aliases]
+            except Exception:
+                pass
+
             if not self.scraper.initialize():
                 return False
 
-            # Debug/teşhis logları (Esvento'nun eklenmemesi sorununu anlamak için kritik)
+            # Debug/teşhis logları
             try:
                 logger.info(
-                    "🔎 Scraper kimlik bilgileri: merchant_id=%s, my_merchant_name=%s, store_url=%s",
+                    "🔎 Scraper kimlik bilgileri: merchant_id=%s, my_merchant_name=%s, my_aliases=%s, store_url=%s",
                     getattr(self.scraper, "merchant_id", None),
                     getattr(self.scraper, "my_merchant_name", None),
+                    getattr(self.scraper, "my_merchant_aliases", None),
                     self.config.TRENDYOL_STORE_URL,
                 )
             except Exception:
