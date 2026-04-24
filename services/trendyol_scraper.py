@@ -372,6 +372,13 @@ class TrendyolScraper:
             clean_url = self._clean_product_url(product_url)
             sellers, actual_name = [], product_name
 
+            logger.info(
+                "  🔎 Ürün debug: clean_url=%s merchant_id=%s my_merchant_name=%s",
+                clean_url,
+                self.merchant_id,
+                self.my_merchant_name,
+            )
+
             own_browser = own_pw = None
             if context is None:
                 from playwright.sync_api import sync_playwright
@@ -388,7 +395,7 @@ class TrendyolScraper:
                 loaded = False
                 for attempt in range(self.max_retries):
                     try:
-                        page.goto(clean_url, wait_until='domcontentloaded', timeout=60000)
+                        page.goto(clean_url, wait_until='domcontentloaded', timeout=90000)
                         time.sleep(1.5)
                         loaded = True
                         break
@@ -417,20 +424,32 @@ class TrendyolScraper:
                                 f"sepet={buy_box['basket_discount'] or '-'})")
 
                 if self._open_other_sellers_panel(page):
-                    # Her satıcının kendi sayfasını ziyaret et (merchantId URL'i)
                     mids = self._get_seller_merchant_urls(page, clean_url)
+                    logger.info(
+                        "  🧾 Panel merchantId URL listesi: %s",
+                        [m.get('url') for m in (mids or [])],
+                    )
                     if mids:
                         for mu in mids:
                             try:
+                                logger.info("  ➜ Satıcı sayfasına gidiliyor: %s", mu.get('url'))
                                 sp = context.new_page()
                                 sp.route(
                                     "**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico,mp4,mp3}",
                                     lambda route: route.abort()
                                 )
-                                sp.goto(mu['url'], wait_until='domcontentloaded', timeout=30000)
-                                time.sleep(1.0)
+                                sp.goto(mu['url'], wait_until='domcontentloaded', timeout=60000)
+                                time.sleep(1.2)
                                 sd = self._extract_buy_box_seller(sp)
+                                if not sd:
+                                    logger.warning("  ⚠️ Satıcı sayfası buybox okunamadı: %s", mu.get('url'))
+                                else:
+                                    logger.info(
+                                        "  ↳ Satıcı sayfası buybox: name=%s price=%s net=%s url=%s",
+                                        sd.get('name'), sd.get('price'), sd.get('net_price'), mu.get('url')
+                                    )
                                 sp.close()
+
                                 if sd and sd['price'] > 0:
                                     name_lower = sd['name'].strip().lower()
                                     already = any(
@@ -445,13 +464,12 @@ class TrendyolScraper:
                                             f"sepet={sd['basket_discount'] or '-'})"
                                         )
                             except Exception as _se:
-                                logger.warning(f"  ⚠️ Satıcı sayfası: {_se}")
+                                logger.warning(f"  ⚠️ Satıcı sayfası: {_se} url={mu.get('url')}")
                     else:
-                        # Fallback: panelden direkt parse (merchantId bulunamazsa)
                         others = self._parse_all_sellers_from_panel(page, buy_box)
                         sellers.extend(others)
 
-                # ── Esvento eksikse merchantId URL ile tekrar ziyaret et ────
+                # ── Kendi mağazam eksikse merchantId URL ile tekrar ziyaret et ────
                 if self.merchant_id and self.my_merchant_name:
                     esvento_found = any(
                         self.my_merchant_name in s.get('name', '').upper()
@@ -460,18 +478,32 @@ class TrendyolScraper:
                     if not esvento_found:
                         try:
                             merchant_url = f"{clean_url}?merchantId={self.merchant_id}"
+                            logger.info("  🔁 Kendi mağaza yok, merchantId ile tekrar: %s", merchant_url)
                             ep = context.new_page()
                             ep.route("**/*.{png,jpg,jpeg,gif,webp,woff,woff2,ico}",
                                      lambda r: r.abort())
-                            ep.goto(merchant_url, wait_until='domcontentloaded', timeout=30000)
-                            time.sleep(1.5)
+                            ep.goto(merchant_url, wait_until='domcontentloaded', timeout=60000)
+                            time.sleep(1.8)
                             es = self._extract_buy_box_seller(ep)
                             ep.close()
+                            if not es:
+                                logger.warning("  ⚠️ merchantId ziyaretinde buybox okunamadı")
+                            else:
+                                logger.info(
+                                    "  ↳ merchantId buybox: name=%s price=%s net=%s",
+                                    es.get('name'), es.get('price'), es.get('net_price')
+                                )
                             if es and self.my_merchant_name in es.get('name', '').upper():
                                 sellers.append(es)
                                 logger.info(
                                     f"  ✅ {es['name']} merchantId ziyareti ile eklendi: "
                                     f"₺{es['net_price']} (kupon={es['coupon'] or '-'})"
+                                )
+                            else:
+                                logger.warning(
+                                    "  ⚠️ merchantId ziyaretinde beklenen mağaza gelmedi. beklenen=%s gelen=%s",
+                                    self.my_merchant_name,
+                                    (es or {}).get('name') if isinstance(es, dict) else None,
                                 )
                         except Exception as _me:
                             logger.warning(f"  ⚠️ Merchant URL ziyareti başarısız: {_me}")
