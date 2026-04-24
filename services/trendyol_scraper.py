@@ -1219,14 +1219,14 @@ class TrendyolScraper:
                 'AppleWebKit/537.36 (KHTML, like Gecko) '
                 'Chrome/145.0.0.0 Safari/537.36'
             ),
-                '--no-sandbox', '--disable-dev-shm-usage',
-                '--disable-gpu', '--single-process',
-            ]
-        browser = playwright.chromium.launch(headless=is_ci, args=args)
-        context = browser.new_context(
-            user_agent=(
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
+            viewport={'width': 1920, 'height': 1080},
+            locale='tr-TR',
+            timezone_id='Europe/Istanbul',
+        )
+        return browser, context
+
+    def initialize(self) -> bool:
+        try:
             from playwright.sync_api import sync_playwright  # noqa
             return True
         except ImportError:
