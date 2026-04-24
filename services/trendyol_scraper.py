@@ -141,6 +141,31 @@ class TrendyolScraper:
                 return True
         return False
 
+    def _extract_merchant_id(self, url: str) -> Optional[str]:
+        m = re.search(r'mid=(\d+)|merchantId=(\d+)', url)
+        return (m.group(1) or m.group(2)) if m else None
+
+    def _clean_product_url(self, url: str) -> str:
+        """
+        Tüm query string'i kaldır — sadece /ürün-adı-p-XXXXX kalsın.
+
+        Neden önemli:
+          Trendyol URL'de boutiqueId veya merchantId varsa O mağazanın
+          fiyatını Buy Box olarak gösteriyor. Temiz URL açılınca gerçek
+          Buy Box sahibi görünür.
+
+        Örnek:
+          /lavazza/rossa-p-123?boutiqueId=61&merchantId=1126746
+          → https://www.trendyol.com/lavazza/rossa-p-123
+        """
+        clean = re.sub(r'\?.*$', '', url.strip())
+        if clean.startswith('/'):
+            clean = 'https://www.trendyol.com' + clean
+        # http → https
+        if clean.startswith('http://'):
+            clean = 'https://' + clean[7:]
+        return clean
+
     # ──────────────────────────────────────────────────────────────────────────
     # Ürün listesi (değişmedi)
     # ──────────────────────────────────────────────────────────────────────────
@@ -1027,6 +1052,37 @@ class TrendyolScraper:
             s['net_price'] = s['price']
 
         return s if s['name'] and s['price'] > 0 else None
+
+    def _make_browser_context(self, playwright):
+        is_ci = os.getenv('CI', 'false').lower() == 'true'
+        args = ['--disable-blink-features=AutomationControlled']
+        if is_ci:
+            args += [
+                '--no-sandbox', '--disable-dev-shm-usage',
+                '--disable-gpu', '--single-process',
+            ]
+        browser = playwright.chromium.launch(headless=is_ci, args=args)
+        context = browser.new_context(
+            user_agent=(
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/145.0.0.0 Safari/537.36'
+            ),
+            viewport={'width': 1920, 'height': 1080},
+            locale='tr-TR',
+            timezone_id='Europe/Istanbul',
+        )
+        return browser, context
+
+    def initialize(self) -> bool:
+        try:
+            from playwright.sync_api import sync_playwright  # noqa
+            return True
+        except ImportError:
+            import subprocess
+            subprocess.check_call(['pip', 'install', 'playwright'])
+            subprocess.check_call(['playwright', 'install', 'chromium'])
+            return True
 
     def close(self) -> None:
         logger.info("✅ Scraper kapatıldı")
