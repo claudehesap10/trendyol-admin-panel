@@ -642,6 +642,32 @@ class TrendyolScraper:
                     if name:
                         s['name'] = name
                         break
+
+            # Fallback 1: sayfa metninden satıcı ismini yakala (özellikle merchantId view'de)
+            if not s['name']:
+                try:
+                    body = (page.text_content('body') or '')[:8000]
+                    m = re.search(r'(?:Satıcı\s*[:\-]?\s*)([\wÇĞİÖŞÜçğıöşü0-9\s\.\-]{2,80})', body, re.IGNORECASE)
+                    if m:
+                        candidate = m.group(1).strip()
+                        if candidate and len(candidate) >= 2:
+                            s['name'] = candidate
+                except Exception:
+                    pass
+
+            # Fallback 2: Trendyol datalayer (PuzzleJs.emit __PRODUCT_DETAIL__DATALAYER)
+            # site.html içinde görülen örnek:
+            # PuzzleJs.emit("4", "envoy", "__PRODUCT_DETAIL__DATALAYER", {..."product_merchant":"LavAzza Esvento","product_merchantid":1126746...});
+            if not s['name']:
+                try:
+                    html = (page.content() or '')
+                    # product_merchant value
+                    m_name = re.search(r'"product_merchant"\s*:\s*"([^"]{2,120})"', html)
+                    if m_name:
+                        s['name'] = m_name.group(1).strip()
+                except Exception:
+                    pass
+
             if not s['name']:
                 return None
 
