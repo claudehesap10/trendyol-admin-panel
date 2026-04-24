@@ -166,6 +166,76 @@ class TrendyolScraper:
             clean = 'https://' + clean[7:]
         return clean
 
+    def _extract_product_datalayer(self, page) -> Optional[Dict]:
+        """Parse __PRODUCT_DETAIL__DATALAYER payload from HTML.
+
+        Trendyol pages often embed a JSON object via:
+          PuzzleJs.emit(..., "__PRODUCT_DETAIL__DATALAYER", {...});
+
+        We use this as a fallback when DOM selectors fail (common in CI / merchantId views).
+        """
+        try:
+            html = page.content() or ""
+            if not html:
+                return None
+
+            # Fast path: find the datalayer marker then capture the JSON that follows.
+            marker = '"__PRODUCT_DETAIL__DATALAYER"'
+            idx = html.find(marker)
+            if idx == -1:
+                # Some pages may include it without quotes or with different formatting; try a looser search.
+                idx = html.find('__PRODUCT_DETAIL__DATALAYER')
+                if idx == -1:
+                    return None
+
+            # Find the first '{' after the marker
+            start = html.find('{', idx)
+            if start == -1:
+                return None
+
+            # Extract a balanced JSON object (best effort)
+            depth = 0
+            in_str = False
+            esc = False
+            end = None
+            for i in range(start, min(len(html), start + 2_000_000)):
+                ch = html[i]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == '\\':
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                else:
+                    if ch == '"':
+                        in_str = True
+                        continue
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = i + 1
+                            break
+
+            if not end:
+                return None
+
+            json_text = html[start:end]
+
+            import json
+            try:
+                return json.loads(json_text)
+            except Exception:
+                # Sometimes payload can contain invalid escapes; as a fallback do minimal cleanup.
+                json_text2 = json_text.replace('\u00a0', ' ')
+                return json.loads(json_text2)
+        except Exception as e:
+            logger.debug("    ⚠️ datalayer parse failed: %s", e)
+            return None
+
     # ──────────────────────────────────────────────────────────────────────────
     # Ürün listesi (değişmedi)
     # ──────────────────────────────────────────────────────────────────────────
@@ -655,16 +725,16 @@ class TrendyolScraper:
                 except Exception:
                     pass
 
-            # Fallback 2: Trendyol datalayer (PuzzleJs.emit __PRODUCT_DETAIL__DATALAYER)
-            # site.html içinde görülen örnek:
-            # PuzzleJs.emit("4", "envoy", "__PRODUCT_DETAIL__DATALAYER", {..."product_merchant":"LavAzza Esvento","product_merchantid":1126746...});
+            # Fallback 2: Trendyol datalayer (robust JSON parse)
+            # We also use it for price fallbacks later.
+            dl = None
             if not s['name']:
                 try:
-                    html = (page.content() or '')
-                    # product_merchant value
-                    m_name = re.search(r'"product_merchant"\s*:\s*"([^"]{2,120})"', html)
-                    if m_name:
-                        s['name'] = m_name.group(1).strip()
+                    dl = self._extract_product_datalayer(page)
+                    if isinstance(dl, dict):
+                        dl_name = dl.get('product_merchant')
+                        if isinstance(dl_name, str) and dl_name.strip():
+                            s['name'] = dl_name.strip()
                 except Exception:
                     pass
 
@@ -703,6 +773,62 @@ class TrendyolScraper:
                         s['old_price'] = p
                         break
 
+            # Price fallback from datalayer (helps when merchantId view hides DOM price)
+            if s['price'] <= 0:
+                try:
+                    if dl is None:
+                        dl = self._extract_product_datalayer(page)
+                    if isinstance(dl, dict):
+                        # Common keys observed in Trendyol datalayer payloads.
+                        # We'll try multiple candidates.
+                        candidates = []
+                        for k in [
+                            'product_price',
+                            'product_sale_price',
+                            'sellingPrice',
+                            'salePrice',
+                            'price',
+                            'discountedPrice',
+                        ]:
+                            v = dl.get(k)
+                            if isinstance(v, (int, float)):
+                                candidates.append(float(v))
+                            elif isinstance(v, str):
+                                pv = parse_price(v)
+                                if pv > 0:
+                                    candidates.append(pv)
+
+                        # Some payloads nest pricing under product / merchantListing
+                        prod = dl.get('product') if isinstance(dl.get('product'), dict) else None
+                        if prod:
+                            for k in ['price', 'sellingPrice', 'salePrice', 'discountedPrice']:
+                                v = prod.get(k)
+                                if isinstance(v, (int, float)):
+                                    candidates.append(float(v))
+                                elif isinstance(v, str):
+                                    pv = parse_price(v)
+                                    if pv > 0:
+                                        candidates.append(pv)
+
+                        ml = dl.get('merchantListing') if isinstance(dl.get('merchantListing'), dict) else None
+                        if ml:
+                            for k in ['price', 'sellingPrice', 'salePrice', 'discountedPrice']:
+                                v = ml.get(k)
+                                if isinstance(v, (int, float)):
+                                    candidates.append(float(v))
+                                elif isinstance(v, str):
+                                    pv = parse_price(v)
+                                    if pv > 0:
+                                        candidates.append(pv)
+
+                        # Pick the first sane candidate
+                        for c in candidates:
+                            if 0 < c < 150000:
+                                s['price'] = c
+                                break
+                except Exception:
+                    pass
+
             coupon_info = self._extract_coupon_info(page)
             s['coupon']        = coupon_info['text']
             s['coupon_max_tl'] = coupon_info['max_tl']
@@ -718,7 +844,6 @@ class TrendyolScraper:
             if s['net_price'] <= 0:
                 s['net_price'] = s['price']
 
-            # Log: fiyat katmanlarını açık yaz
             logger.debug(
                 f"    💰 {s['name']}: liste=₺{s['price']} "
                 f"kupon='{s['coupon']}' (max ₺{s['coupon_max_tl']}) "
