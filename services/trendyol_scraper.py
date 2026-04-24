@@ -236,6 +236,57 @@ class TrendyolScraper:
             logger.debug("    ⚠️ datalayer parse failed: %s", e)
             return None
 
+    def _extract_merchant_id_from_datalayer(self, dl: Optional[Dict]) -> Optional[str]:
+        """Try to get merchantId from Trendyol datalayer payload."""
+        try:
+            if not isinstance(dl, dict):
+                return None
+
+            # Observed / potential keys
+            for k in [
+                'product_merchantid',
+                'product_merchantId',
+                'merchantId',
+                'merchant_id',
+                'product_merchant_id',
+            ]:
+                v = dl.get(k)
+                if isinstance(v, (int, float)) and int(v) > 0:
+                    return str(int(v))
+                if isinstance(v, str) and v.strip().isdigit():
+                    return v.strip()
+
+            # Nested possibilities
+            for container_key in ['merchantListing', 'product', 'buybox', 'buyBox', 'listing']:
+                c = dl.get(container_key)
+                if not isinstance(c, dict):
+                    continue
+                for k in ['merchantId', 'merchant_id', 'id', 'mid']:
+                    v = c.get(k)
+                    if isinstance(v, (int, float)) and int(v) > 0:
+                        return str(int(v))
+                    if isinstance(v, str) and v.strip().isdigit():
+                        return v.strip()
+        except Exception:
+            return None
+        return None
+
+    def _extract_buy_box_with_retry(self, page, label: str = "") -> Optional[Dict]:
+        """Extract buybox; if it fails, do a single reload+wait retry (helps flaky merchantId views)."""
+        sd = self._extract_buy_box_seller(page)
+        if sd:
+            return sd
+
+        try:
+            logger.info("  🔄 Buybox retry (reload once) %s", f"[{label}]" if label else "")
+            page.reload(wait_until='domcontentloaded', timeout=60000)
+            time.sleep(1.2)
+        except Exception as _re:
+            logger.warning("  ⚠️ Buybox retry reload failed %s: %s", f"[{label}]" if label else "", _re)
+            return None
+
+        return self._extract_buy_box_seller(page)
+
     # ──────────────────────────────────────────────────────────────────────────
     # Ürün listesi (değişmedi)
     # ──────────────────────────────────────────────────────────────────────────
@@ -250,25 +301,38 @@ class TrendyolScraper:
         if not self.merchant_id:
             logger.error("❌ Merchant ID yok!")
             return []
+
         try:
             from playwright.sync_api import sync_playwright
-            all_products, seen_ids = [], set()
+
+            all_products: List[Dict] = []
+            seen_ids = set()
+
             with sync_playwright() as p:
                 browser, context = self._make_browser_context(p)
-                page = context.new_page()
-                url = f"https://www.trendyol.com/sr?mid={self.merchant_id}&os=1"
-                page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                time.sleep(1.5)
-                total = self._read_total_product_count(page)
-                cards = self._scroll_until_all_loaded(page, total)
-                for card in cards:
-                    p_data = self._extract_product_from_card(card, seen_ids)
-                    if p_data:
-                        all_products.append(p_data)
-                        seen_ids.add(p_data['id'])
-                browser.close()
+                try:
+                    page = context.new_page()
+                    url = f"https://www.trendyol.com/sr?mid={self.merchant_id}&os=1"
+                    page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                    time.sleep(1.5)
+
+                    total = self._read_total_product_count(page)
+                    cards = self._scroll_until_all_loaded(page, total)
+
+                    for card in cards:
+                        p_data = self._extract_product_from_card(card, seen_ids)
+                        if p_data:
+                            all_products.append(p_data)
+                            seen_ids.add(p_data['id'])
+                finally:
+                    try:
+                        browser.close()
+                    except Exception:
+                        pass
+
             logger.info(f"✅ {len(all_products)} ürün çekildi")
             return all_products
+
         except Exception as e:
             logger.error(f"❌ Ürün listesi hatası: {e}")
             return []
@@ -278,15 +342,16 @@ class TrendyolScraper:
             body = page.text_content('body') or ''
             m = re.search(r'(\d+)\+?\s*[Üü]r[üu]n', body)
             return int(m.group(1)) if m else 0
-        except:
+        except Exception:
             return 0
 
     def _scroll_until_all_loaded(self, page, total_expected: int = 0):
-        last_count = no_new = 0
-        max_no_new = 25  # Daha sabırlı
+        last_count = 0
+        no_new = 0
+        max_no_new = 25
 
         for attempt in range(500):
-            page.evaluate('window.scrollBy(0, 800)')  # Küçük adım — son kartları kaçırma
+            page.evaluate('window.scrollBy(0, 800)')
             time.sleep(1.2)
 
             if attempt % 3 != 0:
@@ -299,7 +364,8 @@ class TrendyolScraper:
             cur = len(cards)
             if cur > last_count:
                 logger.info(f"  📜 Scroll {attempt+1}: {cur} kart (+{cur-last_count})")
-                last_count, no_new = cur, 0
+                last_count = cur
+                no_new = 0
                 if total_expected > 0 and cur >= total_expected:
                     break
             else:
@@ -307,13 +373,15 @@ class TrendyolScraper:
                 try:
                     btn = page.query_selector('button:has-text("Daha Fazla")')
                     if btn and btn.is_visible():
-                        btn.click(); time.sleep(2); no_new = 0; continue
-                except:
+                        btn.click()
+                        time.sleep(2)
+                        no_new = 0
+                        continue
+                except Exception:
                     pass
                 if no_new >= max_no_new:
                     break
 
-        # Son kartları yakalamak için ekstra bekle
         time.sleep(3)
         page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
         time.sleep(2)
@@ -496,7 +564,6 @@ class TrendyolScraper:
                         [m.get('url') for m in (mids or [])],
                     )
 
-                    # Panelde ESVENTO satırı var mı? (ekran görüntüsü gerekmesin)
                     if self.my_merchant_name:
                         try:
                             panel_text = (page.text_content('body') or '')
@@ -521,33 +588,38 @@ class TrendyolScraper:
                                 sp.goto(mu['url'], wait_until='domcontentloaded', timeout=60000)
                                 time.sleep(1.2)
 
-                                # merchantId sayfası gerçekten doğru yere mi gitti?
                                 try:
                                     final_url = sp.url
                                 except Exception:
                                     final_url = None
 
-                                # Sadece kendi merchantId'miz için ekstra teşhis
                                 if mu.get('mid') and self.merchant_id and str(mu.get('mid')) == str(self.merchant_id):
                                     try:
                                         body_snip = (sp.text_content('body') or '')[:3000]
                                         has_my_name = bool(self.my_merchant_name) and (self.my_merchant_name in body_snip.upper())
+
+                                        dl = self._extract_product_datalayer(sp)
+                                        dl_mid = self._extract_merchant_id_from_datalayer(dl)
+                                        dl_name = dl.get('product_merchant') if isinstance(dl, dict) else None
+
                                         logger.info(
-                                            "  🧭 merchantId sayfası teşhis: expected_mid=%s final_url=%s body_has_%s=%s",
+                                            "  🧭 merchantId sayfası teşhis: expected_mid=%s final_url=%s body_has_%s=%s dl_mid=%s dl_name=%s",
                                             self.merchant_id,
                                             final_url,
                                             self.my_merchant_name,
                                             has_my_name,
+                                            dl_mid,
+                                            dl_name,
                                         )
                                     except Exception as _be:
                                         logger.warning(
-                                            "  ⚠️ merchantId sayfası body okunamadı: expected_mid=%s final_url=%s err=%s",
+                                            "  ⚠️ merchantId sayfası body/dl okunamadı: expected_mid=%s final_url=%s err=%s",
                                             self.merchant_id,
                                             final_url,
                                             _be,
                                         )
 
-                                sd = self._extract_buy_box_seller(sp)
+                                sd = self._extract_buy_box_with_retry(sp, label=f"mid={mu.get('mid')}")
                                 if not sd:
                                     logger.warning(
                                         "  ⚠️ Satıcı sayfası buybox okunamadı: %s (final_url=%s)",
@@ -559,6 +631,17 @@ class TrendyolScraper:
                                         "  ↳ Satıcı sayfası buybox: name=%s price=%s net=%s url=%s",
                                         sd.get('name'), sd.get('price'), sd.get('net_price'), mu.get('url')
                                     )
+
+                                # Kendi mağazamı isimle bulamazsak datalayer merchantId ile işaretle.
+                                try:
+                                    if sd and self.merchant_id:
+                                        dl2 = self._extract_product_datalayer(sp)
+                                        dl2_mid = self._extract_merchant_id_from_datalayer(dl2)
+                                        if dl2_mid and str(dl2_mid) == str(self.merchant_id):
+                                            sd['_is_my_store_by_mid'] = True
+                                except Exception:
+                                    pass
+
                                 sp.close()
 
                                 if sd and sd['price'] > 0:
@@ -580,10 +663,9 @@ class TrendyolScraper:
                         others = self._parse_all_sellers_from_panel(page, buy_box)
                         sellers.extend(others)
 
-                # ── Kendi mağazam eksikse merchantId URL ile tekrar ziyaret et ────
                 if self.merchant_id and (self.my_merchant_name or self.my_merchant_aliases):
                     esvento_found = any(
-                        self._is_my_merchant(s.get('name', ''))
+                        self._is_my_merchant(s.get('name', '')) or bool(s.get('_is_my_store_by_mid'))
                         for s in sellers
                     )
                     if not esvento_found:
@@ -596,25 +678,36 @@ class TrendyolScraper:
                             ep.goto(merchant_url, wait_until='domcontentloaded', timeout=60000)
                             time.sleep(1.8)
 
-                            # Redirect/engel teşhisi
                             try:
                                 final_url = ep.url
                             except Exception:
                                 final_url = None
+
+                            dl_ep = None
+                            dl_mid = None
+                            dl_name = None
+                            try:
+                                dl_ep = self._extract_product_datalayer(ep)
+                                dl_mid = self._extract_merchant_id_from_datalayer(dl_ep)
+                                dl_name = dl_ep.get('product_merchant') if isinstance(dl_ep, dict) else None
+                            except Exception:
+                                pass
+
                             try:
                                 body_snip = (ep.text_content('body') or '')[:3000]
                                 has_my_name = self.my_merchant_name in body_snip.upper()
                                 logger.info(
-                                    "  🧭 merchantId retry teşhis: final_url=%s body_has_%s=%s",
+                                    "  🧭 merchantId retry teşhis: final_url=%s body_has_%s=%s dl_mid=%s dl_name=%s",
                                     final_url,
                                     self.my_merchant_name,
                                     has_my_name,
+                                    dl_mid,
+                                    dl_name,
                                 )
                             except Exception as _re:
                                 logger.warning("  ⚠️ merchantId retry body okunamadı: %s", _re)
 
-                            es = self._extract_buy_box_seller(ep)
-                            ep.close()
+                            es = self._extract_buy_box_with_retry(ep, label="merchantId-retry")
                             if not es:
                                 logger.warning("  ⚠️ merchantId ziyaretinde buybox okunamadı")
                             else:
@@ -622,7 +715,13 @@ class TrendyolScraper:
                                     "  ↳ merchantId buybox: name=%s price=%s net=%s",
                                     es.get('name'), es.get('price'), es.get('net_price')
                                 )
-                            if es and self._is_my_merchant(es.get('name', '')):
+
+                            if es and dl_mid and str(dl_mid) == str(self.merchant_id):
+                                es['_is_my_store_by_mid'] = True
+
+                            ep.close()
+
+                            if es and (self._is_my_merchant(es.get('name', '')) or bool(es.get('_is_my_store_by_mid'))):
                                 sellers.append(es)
                                 logger.info(
                                     f"  ✅ {es['name']} merchantId ziyareti ile eklendi: "
@@ -630,27 +729,27 @@ class TrendyolScraper:
                                 )
                             else:
                                 logger.warning(
-                                    "  ⚠️ merchantId ziyaretinde beklenen mağaza gelmedi. beklenen=%s gelen=%s",
+                                    "  ⚠️ merchantId ziyaretinde beklenen mağaza gelmedi. beklenen=%s gelen=%s dl_mid=%s",
                                     self.my_merchant_name,
                                     (es or {}).get('name') if isinstance(es, dict) else None,
+                                    dl_mid,
                                 )
                         except Exception as _me:
                             logger.warning(f"  ⚠️ Merchant URL ziyareti başarısız: {_me}")
 
-                # ── Fiyat sanity check ──────────────────────────────────────
-                # Kendi fiyatımızı bul
                 my_price = 0.0
                 for s in sellers:
-                    if (self.my_merchant_name or self.my_merchant_aliases) and self._is_my_merchant(s.get('name', '')):
+                    if (self.my_merchant_name or self.my_merchant_aliases) and (
+                        self._is_my_merchant(s.get('name', '')) or bool(s.get('_is_my_store_by_mid'))
+                    ):
                         my_price = s['net_price']
                         break
 
                 if my_price > 0:
                     for s in sellers:
-                        if s.get('name', '').upper() == self.my_merchant_name:
+                        if bool(s.get('_is_my_store_by_mid')) or (s.get('name', '').upper() == self.my_merchant_name):
                             continue
                         ratio = s['net_price'] / my_price
-                        # Rakip fiyatı kendi fiyatımızın %40'ından ucuzsa şüpheli
                         if ratio < 0.40:
                             logger.warning(
                                 f"  ⚠️ ŞÜPHELİ FİYAT: {s['name']} "
