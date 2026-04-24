@@ -429,6 +429,20 @@ class TrendyolScraper:
                         "  🧾 Panel merchantId URL listesi: %s",
                         [m.get('url') for m in (mids or [])],
                     )
+
+                    # Panelde ESVENTO satırı var mı? (ekran görüntüsü gerekmesin)
+                    if self.my_merchant_name:
+                        try:
+                            panel_text = (page.text_content('body') or '')
+                            found_in_panel = self.my_merchant_name in panel_text.upper()
+                            logger.info(
+                                "  🧩 Panelde %s var mı?: %s",
+                                self.my_merchant_name,
+                                "EVET" if found_in_panel else "HAYIR",
+                            )
+                        except Exception as _pe:
+                            logger.warning("  ⚠️ Panel metni okunamadı: %s", _pe)
+
                     if mids:
                         for mu in mids:
                             try:
@@ -440,9 +454,40 @@ class TrendyolScraper:
                                 )
                                 sp.goto(mu['url'], wait_until='domcontentloaded', timeout=60000)
                                 time.sleep(1.2)
+
+                                # merchantId sayfası gerçekten doğru yere mi gitti?
+                                try:
+                                    final_url = sp.url
+                                except Exception:
+                                    final_url = None
+
+                                # Sadece kendi merchantId'miz için ekstra teşhis
+                                if mu.get('mid') and self.merchant_id and str(mu.get('mid')) == str(self.merchant_id):
+                                    try:
+                                        body_snip = (sp.text_content('body') or '')[:3000]
+                                        has_my_name = bool(self.my_merchant_name) and (self.my_merchant_name in body_snip.upper())
+                                        logger.info(
+                                            "  🧭 merchantId sayfası teşhis: expected_mid=%s final_url=%s body_has_%s=%s",
+                                            self.merchant_id,
+                                            final_url,
+                                            self.my_merchant_name,
+                                            has_my_name,
+                                        )
+                                    except Exception as _be:
+                                        logger.warning(
+                                            "  ⚠️ merchantId sayfası body okunamadı: expected_mid=%s final_url=%s err=%s",
+                                            self.merchant_id,
+                                            final_url,
+                                            _be,
+                                        )
+
                                 sd = self._extract_buy_box_seller(sp)
                                 if not sd:
-                                    logger.warning("  ⚠️ Satıcı sayfası buybox okunamadı: %s", mu.get('url'))
+                                    logger.warning(
+                                        "  ⚠️ Satıcı sayfası buybox okunamadı: %s (final_url=%s)",
+                                        mu.get('url'),
+                                        final_url,
+                                    )
                                 else:
                                     logger.info(
                                         "  ↳ Satıcı sayfası buybox: name=%s price=%s net=%s url=%s",
@@ -484,6 +529,24 @@ class TrendyolScraper:
                                      lambda r: r.abort())
                             ep.goto(merchant_url, wait_until='domcontentloaded', timeout=60000)
                             time.sleep(1.8)
+
+                            # Redirect/engel teşhisi
+                            try:
+                                final_url = ep.url
+                            except Exception:
+                                final_url = None
+                            try:
+                                body_snip = (ep.text_content('body') or '')[:3000]
+                                has_my_name = self.my_merchant_name in body_snip.upper()
+                                logger.info(
+                                    "  🧭 merchantId retry teşhis: final_url=%s body_has_%s=%s",
+                                    final_url,
+                                    self.my_merchant_name,
+                                    has_my_name,
+                                )
+                            except Exception as _re:
+                                logger.warning("  ⚠️ merchantId retry body okunamadı: %s", _re)
+
                             es = self._extract_buy_box_seller(ep)
                             ep.close()
                             if not es:
